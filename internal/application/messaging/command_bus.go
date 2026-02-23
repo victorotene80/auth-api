@@ -2,6 +2,109 @@ package messaging
 
 import (
 	"context"
+	"errors"
+
+	libbus "github.com/victorotene80/bus_lib/bus"
+	"github.com/victorotene80/bus_lib/message"
+
+	"github.com/victorotene80/authentication_api/internal/application"
+)
+
+type Command = message.Command
+
+type CommandHandler[TCommand Command, TResult any] interface{
+	Handle(ctx context.Context, cmd TCommand) (TResult, error)
+}
+
+type Middleware = libbus.MiddlewareAny
+type HandlerFunc = libbus.HandlerFuncAny
+
+type CommandBus struct {
+	bus *libbus.Bus
+	builder *libbus.Builder
+}
+
+
+func NewCommandBus() *CommandBus {
+	return &CommandBus{
+		builder: libbus.NewBuilder(),
+	}
+}
+
+func (cb *CommandBus) buildOnce() error{
+	if cb.bus != nil {
+		return nil
+	}
+
+	b, err := cb.builder.Build()
+	if err != nil {
+		return err
+	}
+
+	cb.bus = b
+	return nil
+}
+
+func Register[TCommand Command, TResult any](
+	cb *CommandBus,
+	handler CommandHandler[TCommand, TResult],
+) error{
+	return libbus.RegisterCommand[TCommand, TResult](
+		cb.builder,
+		func (ctx context.Context, cmd TCommand) (TResult, error){
+			return handler.Handle(ctx, cmd)
+		}
+	)
+}
+
+func MustRegister[TCommand Command, TResult any](
+	cb *CommandBus,
+	handler CommandHandler[TCommand, TResult],
+){
+	if err := Register(cb, handler); err != nil {
+		panic(err)
+	}
+}
+
+func Execute[TCommand Command, TResult any](
+	cb *CommandBus,
+	ctx context.Context,
+	cmd TCommand,
+)(TResult, error){
+	var zero TResult
+
+	if any(cmd) == nil{
+		return zero, application.ErrNilCommand
+	}
+
+	if err := cb.buildOnce(); err != nil {
+		return zero, err
+	}
+
+	var out TResult
+	if err := libbus.DispatchCommandInto[TCommand, TResult](cb.bus, ctx, cmd, &out); err != nil {
+		if errors.Is(err, libbus.ErrHandlerNotFound) {
+			return zero, application.ErrHandlerNotFound
+		}
+		if errors.Is(err, libbus.ErrNilMessage) {
+			return zero, application.ErrNilCommand
+		}
+		if errors.Is(err, libbus.ErrResponseTypeMismatch) {
+			return zero, application.ErrInvalidResult
+		}
+
+		return zero, err
+	}
+	return out, nil
+}
+
+func (cb *CommandBus) Use(mw Middleware){
+	if err := cb.builder.Use(mw); err != nil {
+		panic(err)
+	}
+}
+/*import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -102,4 +205,4 @@ func (bus *CommandBus) Use(mw Middleware) {
 func getTypeKey[TCommand Command]() string {
 	var t TCommand
 	return fmt.Sprintf("%T", t)
-}
+}*/
