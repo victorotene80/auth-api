@@ -12,4 +12,5 @@ var (
 	ErrPasswordMissingLowercase = errors.New("password must contain lowercase letters")
 	ErrPasswordMissingNumber    = errors.New("password must contain a number")
 	ErrPasswordMissingSpecial   = errors.New("password must contain a special character")
+	ErrEmailAlreadyExists       = errors.New("email already exists")
 )

@@ -14,15 +14,17 @@ func NewAccountLockService(p policy.AccountLockPolicy) *AccountLockService {
 	return &AccountLockService{policy: p}
 }
 
-func (s *AccountLockService) ShouldLock(failedAttempts int, lastFailedAt time.Time) bool {
-	if failedAttempts >= s.policy.MaxFailedAttempts {
-		if time.Since(lastFailedAt) <= s.policy.ResetWindow {
-			return true
-		}
-	}
-	return false
+func (s *AccountLockService) ShouldLock(failedAttempts int) bool {
+	return s.policy.ShouldLockAccount(failedAttempts)
 }
 
-func (s *AccountLockService) IsLocked(lockedAt time.Time) bool {
-	return time.Since(lockedAt) < s.policy.LockDuration
+func (s *AccountLockService) ComputeLockedUntil(now time.Time) time.Time {
+	return s.policy.ComputeLockedUntil(now)
+}
+
+func (s *AccountLockService) IsLocked(lockedUntil *time.Time, now time.Time) bool {
+	if lockedUntil == nil {
+		return false
+	}
+	return s.policy.IsStillLocked(*lockedUntil, now)
 }

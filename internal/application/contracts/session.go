@@ -3,15 +3,16 @@ package contracts
 import (
 	"context"
 	"time"
+	"github.com/victorotene80/authentication_api/internal/domain/contracts/token"
 
-	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
+
 )
 
 // SessionResult represents the outcome of creating a session
 type SessionResult struct {
 	SessionID    string
-	AccessToken  Token
-	RefreshToken Token
+	AccessToken  token.Token
+	RefreshToken token.Token
 	ExpiresAt    time.Time
 }
 
@@ -19,7 +20,6 @@ type SessionService interface {
 	Create(
 		ctx context.Context,
 		userID string,
-		role valueobjects.Role,
 		ipAddress string,
 		userAgent string,
 		deviceID string,

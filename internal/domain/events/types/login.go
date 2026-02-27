@@ -8,10 +8,7 @@ import (
 
 type UserLoginPayload struct {
 	UserID    string
-	Email     string
-	Role      string
-	FirstName string
-	LastName  string
+	Email    string
 	Time      time.Time
 }
 
@@ -20,9 +17,6 @@ const UserLoginEventName = "user.loggedIn"
 func NewUserLogInEvent(
 	userID string,
 	email string,
-	role string,
-	firstName string,
-	lastName string,
 	timestamp time.Time,
 ) events.DomainEvent {
 
@@ -31,10 +25,7 @@ func NewUserLogInEvent(
 		userID,
 		UserLoginPayload{
 			UserID:    userID,
-			Email:     email,
-			Role:      role,
-			FirstName: firstName,
-			LastName:  lastName,
+			Email:    email,
 			Time:      timestamp,
 		},
 		nil,

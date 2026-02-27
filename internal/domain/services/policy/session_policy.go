@@ -3,10 +3,10 @@ package policy
 import "time"
 
 type SessionPolicy struct {
-	MaxDuration           time.Duration 
-	IdleTimeout           time.Duration 
-	MaxConcurrentSessions int           
-	RequireMFAFor         []string      
+	MaxDuration           time.Duration
+	IdleTimeout           time.Duration
+	MaxConcurrentSessions int
+	RequireMFAFor         []string
 	AllowRefreshToken     bool
 	RefreshTokenDuration  time.Duration
 }
@@ -22,8 +22,7 @@ func DefaultSessionPolicy() SessionPolicy {
 	}
 }
 
-func (p SessionPolicy) IsSessionExpired(createdAt, lastSeen time.Time) bool {
-	now := time.Now()
+func (p SessionPolicy) IsSessionExpired(createdAt, lastSeen, now time.Time) bool {
 	if now.Sub(createdAt) > p.MaxDuration {
 		return true
 	}
@@ -31,4 +30,8 @@ func (p SessionPolicy) IsSessionExpired(createdAt, lastSeen time.Time) bool {
 		return true
 	}
 	return false
+}
+
+func (p SessionPolicy) ComputeExpiresAt(now time.Time) time.Time {
+	return now.Add(p.MaxDuration)
 }

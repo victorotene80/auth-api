@@ -3,12 +3,11 @@ package contracts // application layer
 import (
 	"context"
 
-	"github.com/victorotene80/authentication_api/internal/domain/aggregates"
 )
 
-type SessionCache interface {
-	Get(ctx context.Context, token string) (*aggregates.SessionAggregate, error)
-	Set(ctx context.Context, token string, session *aggregates.SessionAggregate) error
-	Delete(ctx context.Context, token string) error
-	RefreshTTL(ctx context.Context, token string) error
+type Cache[K comparable, V any] interface {
+	Get(ctx context.Context, key K) (*V, error)
+	Set(ctx context.Context, key K, value *V) error
+	Delete(ctx context.Context, key K) error
+	RefreshTTL(ctx context.Context, key K) error
 }

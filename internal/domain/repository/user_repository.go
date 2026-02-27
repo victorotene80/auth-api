@@ -13,11 +13,11 @@ type UserRepository interface {
 	FindByEmail(ctx context.Context, email valueobjects.Email) (*aggregates.UserAggregate, error)
 	ExistsByEmail(ctx context.Context, email valueobjects.Email) (bool, error)
 	Update(ctx context.Context, user *aggregates.UserAggregate) error
-	Delete(ctx context.Context, id string) error
+	SoftDelete(ctx context.Context, id string) error
 	List(
 		ctx context.Context,
-		page, pageSize int,
-		role *valueobjects.Role,
-		isActive *bool,
-	) ([]*aggregates.UserAggregate, int64, error)
+		limit int,
+		cursor *string,
+		status *valueobjects.UserStatus,
+	) (users []*aggregates.UserAggregate, nextCursor *string, err error)
 }

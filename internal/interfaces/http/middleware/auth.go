@@ -33,47 +33,39 @@ func AuthMiddleware(
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 
-		// 1️⃣ Extract token
 		tokenStr := extractToken(r)
 		if tokenStr == "" {
 			http.Error(w, "missing token", http.StatusUnauthorized)
 			return
 		}
 
-		// 2️⃣ Validate JWT
-		userID, roleFromToken, err := jwtService.ValidateAccess(tokenStr)
-		if err != nil {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return
-		}
+		 userID, _, roleFromToken, err := jwtService.ValidateAccess(tokenStr)
+        if err != nil {
+            http.Error(w, "invalid token", http.StatusUnauthorized)
+            return
+        }
 
-		// 3️⃣ Hash JWT
-		hashedToken := valueobjects.NewSessionTokenHash(tokenStr)
+        hashedToken, err := valueobjects.NewSessionTokenHash(hasher.Hash(tokenStr))
+        if err != nil {
+            http.Error(w, "internal error", http.StatusInternalServerError)
+            return
+        }
 
-		// 4️⃣ Load session from cache
-		session, err := sessionCache.Get(ctx, hashedToken)
-		if err != nil && !errors.Is(err, infrastructure.ErrSessionNotFound) {
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
+        now := time.Now()
 
-		now := time.Now()
+		 session, err := sessionCache.Get(ctx, hashedToken.Value())
+        if err != nil && !errors.Is(err, infrastructure.ErrSessionNotFound) {
+            http.Error(w, "internal error", http.StatusInternalServerError)
+            return
+        }
 
-		if session == nil {
-			// Cache miss → DB
-			session, err = sessionRepo.FindByTokenHash(ctx, hashedToken)
-			if err != nil || !session.IsValid(now) {
-				http.Error(w, "session invalid", http.StatusUnauthorized)
-				return
-			}
-
-			// Cache for next request
-			_ = sessionCache.Set(ctx, session)
-		} else if !session.IsValid(now) {
-			// Expired in cache
-			_ = sessionCache.Delete(ctx, hashedToken)
-			http.Error(w, "session expired", http.StatusUnauthorized)
-			return
+        if session == nil {
+            // Cache miss → DB
+            session, err = sessionRepo.FindByTokenHash(ctx, hashedToken, now)
+            if err != nil || !session.IsValid(now) {
+                http.Error(w, "session invalid", http.StatusUnauthorized)
+                return
+            }
 		}
 
 		// 5️⃣ Optional sensitive endpoint role check

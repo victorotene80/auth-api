@@ -5,19 +5,20 @@ import (
 	"net/http"
 
 	"github.com/victorotene80/authentication_api/internal/application/command"
-	"github.com/victorotene80/authentication_api/internal/application/contracts"
+	appContracts "github.com/victorotene80/authentication_api/internal/application/contracts"
 	"github.com/victorotene80/authentication_api/internal/application/dto"
 	"github.com/victorotene80/authentication_api/internal/application/messaging"
+	"github.com/victorotene80/authentication_api/internal/interfaces/http/requestctx"
 	"github.com/victorotene80/authentication_api/internal/interfaces/http/rest/request"
 	"github.com/victorotene80/authentication_api/internal/interfaces/http/rest/response"
 )
 
 type CreateUserHandler struct {
 	commandBus *messaging.CommandBus
-	validator  contracts.Validator
+	validator  appContracts.Validator
 }
 
-func NewCreateUserHandler(commandBus *messaging.CommandBus, validator contracts.Validator) *CreateUserHandler {
+func NewCreateUserHandler(commandBus *messaging.CommandBus, validator appContracts.Validator) *CreateUserHandler {
 	return &CreateUserHandler{
 		commandBus: commandBus,
 		validator:  validator,
@@ -27,7 +28,8 @@ func NewCreateUserHandler(commandBus *messaging.CommandBus, validator contracts.
 func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
-	req := new(request.CreateUserRequest) 
+	req := new(request.CreateUserRequest)
+
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 
@@ -41,20 +43,24 @@ func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	meta, _ := requestctx.MetaFrom(r.Context())
+
 	cmd := command.CreateUserCommand{
 		Email:      req.Email,
 		Password:   req.Password,
 		FirstName:  req.FirstName,
 		LastName:   req.LastName,
 		MiddleName: req.MiddleName,
-		DeviceID:   req.DeviceID,
-		IPAddress:  r.RemoteAddr,
-		UserAgent:  r.UserAgent(),
+
+		IPAddress: meta.IPAddress,
+		UserAgent: meta.UserAgent,
+		DeviceID:  meta.DeviceID,
+		RequestID: meta.RequestID,
 	}
 
 	result, err := messaging.Execute[
 		command.CreateUserCommand,
-		dto.UserResponseDTO,
+		dto.RegisterUserResponseDTO,
 	](h.commandBus, r.Context(), cmd)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
@@ -62,10 +68,14 @@ func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := response.CreateUserResponse{
-		UserID:    result.UserID,
-		Email:     result.Email,
-		FirstName: result.FirstName,
-		LastName:  result.LastName,
+		UserID:                result.UserID,
+		Email:                 result.Email,
+		FirstName:             result.FirstName,
+		LastName:              result.LastName,
+		AccessToken:           result.AccessToken,
+		AccessTokenExpiresAt:  result.AccessTokenExpiresAt,
+		RefreshToken:          result.RefreshToken,
+		RefreshTokenExpiresAt: result.RefreshTokenExpiresAt,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

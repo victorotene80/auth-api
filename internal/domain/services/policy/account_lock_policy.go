@@ -5,26 +5,23 @@ import "time"
 type AccountLockPolicy struct {
 	MaxFailedAttempts int
 	LockDuration      time.Duration
-	ResetWindow       time.Duration 
 }
 
 func DefaultAccountLockPolicy() AccountLockPolicy {
 	return AccountLockPolicy{
 		MaxFailedAttempts: 5,
 		LockDuration:      15 * time.Minute,
-		ResetWindow:       1 * time.Hour,
 	}
 }
 
-func (p AccountLockPolicy) ShouldLockAccount(failedAttempts int, lastFailedAt time.Time) bool {
-	if failedAttempts >= p.MaxFailedAttempts {
-		if time.Since(lastFailedAt) <= p.ResetWindow {
-			return true
-		}
-	}
-	return false
+func (p AccountLockPolicy) ShouldLockAccount(failedAttempts int) bool {
+	return failedAttempts >= p.MaxFailedAttempts
 }
 
-func (p AccountLockPolicy) IsAccountStillLocked(lockedAt time.Time) bool {
-	return time.Since(lockedAt) < p.LockDuration
+func (p AccountLockPolicy) ComputeLockedUntil(now time.Time) time.Time {
+	return now.Add(p.LockDuration)
+}
+
+func (p AccountLockPolicy) IsStillLocked(lockedUntil time.Time, now time.Time) bool {
+	return now.Before(lockedUntil)
 }

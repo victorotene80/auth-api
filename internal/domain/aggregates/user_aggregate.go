@@ -2,12 +2,14 @@ package aggregates
 
 import (
 	"fmt"
-
+	"net"
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/victorotene80/authentication_api/internal/domain/entities"
-	events "github.com/victorotene80/authentication_api/internal/domain/events/types"
+	"github.com/victorotene80/authentication_api/internal/domain/events/types"
+	"github.com/victorotene80/authentication_api/internal/domain/services"
 	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
 )
 
@@ -16,141 +18,190 @@ type UserAggregate struct {
 	User *entities.User
 }
 
+
 func NewUserAggregate(
 	email valueobjects.Email,
 	password valueobjects.Password,
 	firstName, lastName, middleName string,
-	role valueobjects.Role,
+	now time.Time,
 ) (*UserAggregate, error) {
 
-	id := uuid.New().String()
+	id := uuid.NewString()
 
-	user := entities.NewUser(
+	user := entities.NewUserForRegistration(
 		id,
 		email,
 		password,
-		role,
 		firstName,
 		lastName,
 		middleName,
+		now,
 	)
 
 	agg := &UserAggregate{
-		AggregateRoot: NewAggregateRoot(id),
+		AggregateRoot: NewAggregateRoot(id, 0),
 		User:          user,
 	}
 
-	event := events.NewUserCreatedEvent(
+	agg.RaiseEvent(types.NewUserCreatedEvent(
 		id,
 		email.String(),
-		role.String(),
+		user.Status().String(),
 		firstName,
 		lastName,
-	)
-
-	agg.RaiseEvent(event)
+	))
 
 	return agg, nil
 }
 
-func RehydrateUser(
-	id, email, hashedPassword, role, firstName, lastName, middleName string,
+
+func NewUserAggregateFromDBRow(
+	id string,
+	email valueobjects.Email,
+	password valueobjects.Password,
+	status valueobjects.UserStatus,
+	firstName, lastName, middleName string,
+	emailVerified bool,
+	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
+	lastLoginAt, lastActiveAt, deletedAt *time.Time,
+	lastLoginIP net.IP,
 	failedAttempts int,
-	lastFailedAt, lockedAt *time.Time,
 	createdAt, updatedAt time.Time,
 	version int,
 ) (*UserAggregate, error) {
 
-	emailVO, err := valueobjects.NewEmail(email)
+	user := entities.NewUserFromDB(
+		id,
+		email,
+		password,
+		status,
+		firstName,
+		lastName,
+		middleName,
+		emailVerified,
+		emailVerifiedAt,
+		passwordChangedAt,
+		passwordExpiresAt,
+		lockedUntil,
+		lastLoginAt,
+		lastActiveAt,
+		deletedAt,
+		lastLoginIP,
+		failedAttempts,
+		createdAt,
+		updatedAt,
+	)
+
+	return &UserAggregate{
+		AggregateRoot: NewAggregateRoot(id, version),
+		User:          user,
+	}, nil
+}
+
+// RehydrateUser is a convenience that takes raw strings from DB and builds VOs.
+func RehydrateUser(
+	id, emailStr, hashedPassword, statusStr,
+	firstName, lastName, middleName string,
+	emailVerified bool,
+	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
+	lastLoginAt, lastActiveAt, deletedAt *time.Time,
+	lastLoginIP net.IP,
+	failedAttempts int,
+	createdAt, updatedAt time.Time,
+	version int,
+) (*UserAggregate, error) {
+
+	emailVO, err := valueobjects.NewEmail(emailStr)
 	if err != nil {
 		return nil, err
 	}
+
 	passVO, err := valueobjects.NewHashedPassword(hashedPassword)
 	if err != nil {
 		return nil, err
 	}
-	roleVO, err := valueobjects.NewRole(role)
-	if err != nil {
-		return nil, err
-	}
 
-	user := entities.NewUser(id, emailVO, passVO, roleVO, firstName, lastName, middleName)
-	user.FailedLoginAttempts = failedAttempts
-	user.LastFailedAt = lastFailedAt
-	user.LockedAt = lockedAt
+	status := valueobjects.UserStatus(statusStr)
 
-	agg := &UserAggregate{
-		AggregateRoot: &AggregateRoot{
-			id:        id,
-			version:   version,
-			createdAt: createdAt,
-			updatedAt: updatedAt,
-		},
-		User: user,
-	}
-
-	return agg, nil
+	return NewUserAggregateFromDBRow(
+		id,
+		emailVO,
+		passVO,
+		status,
+		firstName,
+		lastName,
+		middleName,
+		emailVerified,
+		emailVerifiedAt,
+		passwordChangedAt,
+		passwordExpiresAt,
+		lockedUntil,
+		lastLoginAt,
+		lastActiveAt,
+		deletedAt,
+		lastLoginIP,
+		failedAttempts,
+		createdAt,
+		updatedAt,
+		version,
+	)
 }
 
-func (u *UserAggregate) RecordFailedLogin(now time.Time) {
-	u.User.FailedLoginAttempts++
-	u.User.LastFailedAt = &now
-	if u.User.FailedLoginAttempts >= 5 {
-		u.User.LockedAt = &now
-	}
-}
+func (u *UserAggregate) RecordLogin(now time.Time, ip net.IP) {
+	u.User.RecordLogin(now, ip)
 
-func (u *UserAggregate) ResetFailedLogins() {
-	u.User.FailedLoginAttempts = 0
-	u.User.LastFailedAt = nil
-}
-
-func (u *UserAggregate) RecordLogin(now time.Time) {
-	u.User.SetLastLogin(now)
-
-	event := events.NewUserLogInEvent(
+	u.RaiseEvent(types.NewUserLogInEvent(
 		u.User.ID(),
 		u.User.Email().String(),
-		u.User.Role().String(),
-		u.User.FirstName(),
-		u.User.LastName(),
 		now,
-	)
-
-	u.RaiseEvent(event)
-}
-
-func (u *UserAggregate) UnlockUser() {
-	u.User.LockedAt = nil
+	))
 }
 
 func (u *UserAggregate) ChangePassword(
-	oldHashed string,
+	currentHashed string,
 	newHashed valueobjects.Password,
+	now time.Time,
 ) error {
-
-	if u.User.Password().Value() != oldHashed {
+	if u.User.Password().Value() != currentHashed {
 		return fmt.Errorf("old password does not match")
 	}
 
-	u.User.UpdatePassword(newHashed)
+	u.User.ChangePassword(newHashed, now, false)
 
-	u.RaiseEvent(events.NewUserPasswordChangedEvent(
-		u.id,
+	u.RaiseEvent(types.NewUserPasswordChangedEvent(
+		u.ID(),
 		u.User.Email().String(),
 	))
 
 	return nil
 }
 
-func (u *UserAggregate) IncrementFailedLogin(now time.Time) {
-	u.User.FailedLoginAttempts++
-	u.User.LastFailedAt = &now
+func (u *UserAggregate) RecordFailedLogin(now time.Time, lockSvc *services.AccountLockService) {
+	u.User.IncrementFailedLogin()
+
+	if lockSvc.ShouldLock(u.User.FailedLoginAttempts()) {
+		lockedUntil := lockSvc.ComputeLockedUntil(now)
+		u.User.LockUntil(lockedUntil)
+
+		u.RaiseEvent(types.NewUserLockedEvent(
+			u.User.ID(),
+			u.User.Email().String(),
+			lockedUntil,
+		))
+	}
+
+	u.RaiseEvent(types.NewUserLoginFailedEvent(
+		u.User.ID(),
+		u.User.Email().String(),
+		now,
+	))
 }
 
-/* TODO
-UpdateProfile
-ActivateUser
-Deactivate
-VerifyEmail
-*/
+func (u *UserAggregate) EnsureNotLocked(now time.Time, lockSvc *services.AccountLockService) bool {
+	if lockSvc.IsLocked(u.User.LockedUntil(), now) {
+		return false
+	}
+
+	u.User.UnlockIfExpired(now)
+	return true
+}
