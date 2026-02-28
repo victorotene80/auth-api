@@ -44,6 +44,7 @@ func initializeCommands(
 	sessionPolicy := policy.DefaultSessionPolicy()
 	passwordService := services.NewPasswordService(policy.DefaultPasswordPolicy())
 	mfaService := services.NewMFAService(policy.DefaultMFAPolicy())
+	roleRepo := p.RoleRepo()
 
 	sessionSvc := appServices.NewSessionService(
 		p.SessionRepo,
@@ -57,19 +58,18 @@ func initializeCommands(
 
 	messaging.MustRegister[command.LoginCommand, *dto.LoginResultDTO](
 		bus,
-		handlers.NewLoginHandler(
-			p.UserRepo,
-			sessionSvc,
-			accountPolicy,
-			mfaService,
-			eventPublisher,
-			passwordHasher,
-			clock,
+		handlers.CreateUserHandler(
 			p.UoW,
+			p.UserRepo,
+			passwordHasher,
+			passwordService,
+			roleRepo,
+			eventPublisher,
+			sessionSvc
 		),
 	)
 
-	messaging.MustRegister[command.CreateUserCommand, *dto.UserResponseDTO](
+	/*messaging.MustRegister[command.CreateUserCommand, *dto.UserResponseDTO](
 		bus,
 		handlers.NewCreateUserHandler(
 			p.UoW,
@@ -88,7 +88,7 @@ func initializeCommands(
 			eventPublisher,
 			clock,
 		),
-	)
+	)*/
 
 	return bus
 }

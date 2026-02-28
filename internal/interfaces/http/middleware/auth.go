@@ -14,118 +14,78 @@ import (
 	"github.com/victorotene80/authentication_api/internal/shared/utils"
 )
 
-// Context keys
 type contextKey string
 
 const (
-	ContextUserID contextKey = "userID"
-	ContextRole   contextKey = "role"
+	ContextUserID    contextKey = "userID"
+	ContextSessionID contextKey = "sessionID"
 )
 
 func AuthMiddleware(
-	next http.Handler,
-	jwtService services.JWTGenerator,
-	sessionRepo repository.SessionRepository,
-	sessionCache cache.RedisSessionCache,
-	userRepo repository.UserRepository,
-	hasher *utils.SessionKeyHasher,
+    next http.Handler,
+    jwtService *services.JWTGenerator,
+    sessionRepo repository.SessionRepository,
+    sessionCache cache.RedisSessionCache,
+    hasher *utils.SessionKeyHasher,
 ) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        ctx := r.Context()
 
-		tokenStr := extractToken(r)
-		if tokenStr == "" {
-			http.Error(w, "missing token", http.StatusUnauthorized)
-			return
-		}
+        tokenStr := extractToken(r)
+        if tokenStr == "" {
+            http.Error(w, "missing token", http.StatusUnauthorized)
+            return
+        }
 
-		 userID, _, roleFromToken, err := jwtService.ValidateAccess(tokenStr)
+        userID, sessionID, err := jwtService.ValidateAccess(tokenStr)
         if err != nil {
             http.Error(w, "invalid token", http.StatusUnauthorized)
             return
         }
 
-        hashedToken, err := valueobjects.NewSessionTokenHash(hasher.Hash(tokenStr))
+        hashed := hasher.Hash(tokenStr)
+        tokenHashVO, err := valueobjects.NewSessionTokenHash(hashed)
         if err != nil {
             http.Error(w, "internal error", http.StatusInternalServerError)
             return
         }
 
-        now := time.Now()
+        now := time.Now().UTC()
 
-		 session, err := sessionCache.Get(ctx, hashedToken.Value())
+        session, err := sessionCache.Get(ctx, tokenHashVO.Value())
         if err != nil && !errors.Is(err, infrastructure.ErrSessionNotFound) {
             http.Error(w, "internal error", http.StatusInternalServerError)
             return
         }
 
         if session == nil {
-            // Cache miss → DB
-            session, err = sessionRepo.FindByTokenHash(ctx, hashedToken, now)
+            session, err = sessionRepo.FindByTokenHash(ctx, tokenHashVO, now)
             if err != nil || !session.IsValid(now) {
                 http.Error(w, "session invalid", http.StatusUnauthorized)
                 return
             }
-		}
 
-		// 5️⃣ Optional sensitive endpoint role check
-		if isSensitiveEndpoint(r.URL.Path) {
-			user, err := userRepo.FindByID(ctx, userID)
-			if err != nil || !roleFromTokenHasPermission(roleFromToken, user.User.Role()) {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return
-			}
-		}
+        } else if !session.IsValid(now) {
+            _ = sessionCache.Delete(ctx, tokenHashVO.Value())
+            http.Error(w, "session expired", http.StatusUnauthorized)
+            return
+        }
 
-		// 6️⃣ Touch session (rolling lastSeen)
-		if now.Sub(session.LastSeenAt()) > time.Minute {
-			session.Touch(now)
-			_ = sessionCache.Set(ctx, session)
-		}
+        if now.Sub(session.LastActiveAt()) > time.Minute {
+            session.Touch(now)
+        }
 
-		// 7️⃣ Inject into context
-		ctx = context.WithValue(ctx, ContextUserID, userID)
-		ctx = context.WithValue(ctx, ContextRole, roleFromToken)
+        ctx = context.WithValue(ctx, ContextUserID, userID)
+        ctx = context.WithValue(ctx, ContextSessionID, sessionID)
 
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+        next.ServeHTTP(w, r.WithContext(ctx))
+    })
 }
-
-// Helpers
 
 func extractToken(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if len(auth) > 7 && auth[:7] == "Bearer " {
 		return auth[7:]
-	}
-	return ""
-}
-
-func isSensitiveEndpoint(path string) bool {
-	switch path {
-	case "/admin", "/withdraw":
-		return true
-	default:
-		return false
-	}
-}
-
-func roleFromTokenHasPermission(tokenRole string, requiredRole valueobjects.Role) bool {
-	r := valueobjects.Role(tokenRole)
-	return r.HasPermission(requiredRole)
-}
-
-// Typed getters
-func UserIDFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(ContextUserID).(string); ok {
-		return v
-	}
-	return ""
-}
-
-func RoleFromContext(ctx context.Context) string {
-	if v, ok := ctx.Value(ContextRole).(string); ok {
-		return v
 	}
 	return ""
 }

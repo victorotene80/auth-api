@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 	"errors"
 	"time"
@@ -117,3 +117,4 @@ func (h *RefreshSessionHandler) Handle(
 
 	return newRawToken, nil
 }
+*/

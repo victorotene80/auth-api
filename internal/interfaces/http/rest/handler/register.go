@@ -1,3 +1,4 @@
+// internal/interfaces/http/rest/handler/create_user_http_handler.go
 package handler
 
 import (
@@ -46,16 +47,22 @@ func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	meta, _ := requestctx.MetaFrom(r.Context())
 
 	cmd := command.CreateUserCommand{
-		Email:      req.Email,
-		Password:   req.Password,
-		FirstName:  req.FirstName,
-		LastName:   req.LastName,
-		MiddleName: req.MiddleName,
+		Email:       req.Email,
+		Password:    req.Password,
+		FirstName:   req.FirstName,
+		LastName:    req.LastName,
+		MiddleName:  req.MiddleName,
+		Phone:       req.Phone,
+		Locale:      req.Locale,
+		Timezone:    req.Timezone,
+		AcceptTerms: req.AcceptTerms,
 
-		IPAddress: meta.IPAddress,
-		UserAgent: meta.UserAgent,
-		DeviceID:  meta.DeviceID,
-		RequestID: meta.RequestID,
+		IPAddress:         meta.IPAddress,
+		UserAgent:         meta.UserAgent,
+		DeviceID:          meta.DeviceID,
+		RequestID:         meta.RequestID,
+		DeviceFingerprint: meta.DeviceFingerprint,
+		DeviceName:        meta.DeviceName,
 	}
 
 	result, err := messaging.Execute[

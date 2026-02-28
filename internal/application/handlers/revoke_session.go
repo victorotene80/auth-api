@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 	"time"
 
@@ -64,3 +64,4 @@ func (h *RevokeSessionHandler) Handle(
 		return h.publisher.Publish(txCtx, session.PullEvents(), meta.ToMetadata())
 	})
 }
+*/

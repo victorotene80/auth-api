@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 	"fmt"
 	"time"
@@ -107,4 +107,4 @@ func (h *ChangePasswordHandler) Handle(
 	}
 
 	return result, nil
-}
+}*/

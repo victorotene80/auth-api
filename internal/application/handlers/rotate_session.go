@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 	"errors"
 	"time"
@@ -139,3 +139,4 @@ func (h *RotateSessionHandler) Handle(
 
 	return result, nil
 }
+*/

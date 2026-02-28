@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 	"time"
 
@@ -92,4 +92,4 @@ func (h *ValidateSessionHandler) Handle(
 	}
 
 	return session, nil
-}
+}*/

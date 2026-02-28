@@ -2,6 +2,7 @@ package aggregates
 
 import (
 	"time"
+	"github.com/google/uuid"
 
 	events "github.com/victorotene80/authentication_api/internal/domain/events/types"
 	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
@@ -38,7 +39,6 @@ type SessionAggregate struct {
 	revokeReason *string
 }
 
-// Rehydrate from DB row
 func RehydrateSession(
 	id, userID string,
 	tokenHash string,
@@ -102,7 +102,58 @@ func RehydrateSession(
 	}, nil
 }
 
-// Status is a DERIVED view from DB fields + now.
+func NewSession(
+	userID string,
+	tokenHash valueobjects.SessionTokenHash,
+	refreshTokenHash *valueobjects.SessionTokenHash,
+	ipAddress string,
+	userAgent string,
+	deviceFingerprint string,
+	deviceName string,
+	countryCode string,
+	city string,
+	createdAt time.Time,
+	expiresAt time.Time,
+) (*SessionAggregate, error) {
+
+id := uuid.NewString()
+	ar := NewAggregateRoot(id, 0)
+
+	s := &SessionAggregate{
+		AggregateRoot:     ar,
+		id:                id,
+		userID:            userID,
+		tokenHash:         tokenHash,
+		refreshTokenHash:  refreshTokenHash,
+		previousTokenHash: nil,
+		rotationID:        nil,
+		ipAddress:         ipAddress,
+		deviceFingerprint: deviceFingerprint,
+		deviceName:        deviceName,
+		userAgent:         userAgent,
+		countryCode:       countryCode,
+		city:              city,
+		isMFAVerified:     false,
+		impersonatedBy:    nil,
+		createdAt:         createdAt,
+		lastActiveAt:      createdAt,
+		expiresAt:         expiresAt,
+		revokedAt:         nil,
+		revokeReason:      nil,
+	}
+
+    s.RaiseEvent(events.NewSessionCreatedEvent(
+        s.id,
+        s.userID,
+        ipAddress,
+        userAgent,
+        deviceName,
+    ))
+
+    return s, nil
+}
+
+
 func (s *SessionAggregate) Status(now time.Time) SessionStatus {
 	if s.revokedAt != nil {
 		return SessionRevoked
@@ -151,6 +202,14 @@ func (s *SessionAggregate) RotateKey(
 	s.lastActiveAt = now
 
 	s.RaiseEvent(events.NewSessionAccessedEvent(s.id, s.userID))
+}
+
+func (s *SessionAggregate) SetRefreshTokenHash(hash valueobjects.SessionTokenHash) {
+    s.refreshTokenHash = &hash
+}
+
+func (s *SessionAggregate) LastSeenAt() time.Time {
+	return s.lastActiveAt
 }
 
 

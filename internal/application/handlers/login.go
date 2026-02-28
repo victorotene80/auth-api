@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 	"errors"
 	"time"
@@ -149,4 +149,4 @@ func (h *LoginHandler) Handle(ctx context.Context, cmd command.LoginCommand) (*d
 	}
 
 	return result, nil
-}
+}*/

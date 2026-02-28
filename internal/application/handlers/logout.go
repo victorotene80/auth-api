@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 	"fmt"
 	"time"
@@ -88,4 +88,4 @@ func (h *LogoutHandler) Handle(ctx context.Context, cmd command.LogoutCommand) (
 	}
 
 	return result, nil
-}
+}*/

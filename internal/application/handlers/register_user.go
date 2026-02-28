@@ -1,3 +1,4 @@
+// internal/application/handlers/create_user_handler.go
 package handlers
 
 import (
@@ -20,6 +21,7 @@ type CreateUserHandler struct {
 	userRepo        repository.UserRepository
 	passwordHasher  contracts.PasswordHasher
 	passwordService contracts.PasswordService
+	roleRepo        repository.RoleRepository
 	publisher       appContracts.EventPublisher
 	sessionService  appContracts.SessionService
 }
@@ -29,6 +31,7 @@ func NewCreateUserHandler(
 	userRepo repository.UserRepository,
 	passwordHasher contracts.PasswordHasher,
 	passwordService contracts.PasswordService,
+	roleRepo repository.RoleRepository,
 	publisher appContracts.EventPublisher,
 	sessionService appContracts.SessionService,
 ) *CreateUserHandler {
@@ -37,6 +40,7 @@ func NewCreateUserHandler(
 		userRepo:        userRepo,
 		passwordHasher:  passwordHasher,
 		passwordService: passwordService,
+		roleRepo:        roleRepo,
 		publisher:       publisher,
 		sessionService:  sessionService,
 	}
@@ -84,22 +88,56 @@ func (h *CreateUserHandler) Handle(
 
 		now := time.Now().UTC()
 
+		var middleName string
+		if cmd.MiddleName != nil {
+			middleName = *cmd.MiddleName
+		}
+
 		agg, err := aggregates.NewUserAggregate(
 			email,
 			passwordVO,
 			cmd.FirstName,
 			cmd.LastName,
-			*cmd.MiddleName,
+			middleName,
 			now,
 		)
 		if err != nil {
 			return err
 		}
 
+		// 1) Persist user
 		if err := h.userRepo.Create(txCtx, agg); err != nil {
 			return err
 		}
 
+		// 2) Extract fields for later use
+		u := agg.User
+		userID = u.ID()
+		emailStr = u.Email().String()
+		firstName = u.FirstName()
+		lastName = u.LastName()
+
+		// 3) Assign default role "member"
+		role, err := h.roleRepo.FindBySlug(txCtx, "member")
+		if err != nil {
+			return err
+		}
+		if role == nil {
+			return fmt.Errorf("default role 'member' not found")
+		}
+
+		if err := h.roleRepo.AssignRole(
+			txCtx,
+			userID,
+			role.ID,
+			nil, // organizationID (global role)
+			nil, // grantedBy
+			nil, // expiresAt
+		); err != nil {
+			return err
+		}
+
+		// 4) Publish domain events
 		meta := messaging.Context{
 			Aggregate: "user",
 			Action:    "created",
@@ -114,34 +152,24 @@ func (h *CreateUserHandler) Handle(
 		}
 
 		agg.ClearEvents()
-
-		u := agg.User
-
-		userID = u.ID()
-		emailStr = u.Email().String()
-		firstName = u.FirstName()
-		lastName = u.LastName()
-
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
-	// 2) Create session + tokens (not necessarily in the same DB transaction)
-	//
-	// Ideally, IP / UserAgent / DeviceID come from the outer layer (HTTP),
-	// either via CreateUserCommand fields or a richer context.
-	// For now, we call with empty strings as placeholders.
+	// 5) Create session + tokens (outside DB tx)
 	sessionResult, err := h.sessionService.Create(
 		ctx,
 		userID,
-		"", // ipAddress  (TODO: supply from transport layer)
-		"", // userAgent  (TODO: supply from transport layer)
-		"", // deviceID   (TODO: supply from transport layer)
+		cmd.IPAddress,
+		cmd.UserAgent,
+		cmd.DeviceID,
+		cmd.DeviceFingerprint,
+		cmd.DeviceName,
 	)
 	if err != nil {
-		// At this point the user is created but session failed.
-		// You can either return 500 or handle specially.
+		// User is created and has role, but session creation failed.
+		// For now we just bubble up error (caller can decide HTTP 500 etc.).
 		return nil, err
 	}
 

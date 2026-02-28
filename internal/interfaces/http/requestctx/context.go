@@ -7,10 +7,12 @@ type key int
 const metaKey key = iota
 
 type RequestMeta struct {
-    IPAddress string
-    UserAgent string
-    DeviceID  string
-    RequestID string
+    IPAddress         string
+    UserAgent         string
+    DeviceID          string
+    DeviceFingerprint string
+    DeviceName        string
+    RequestID         string
 }
 
 func WithMeta(ctx context.Context, meta RequestMeta) context.Context {

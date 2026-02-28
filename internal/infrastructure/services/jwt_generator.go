@@ -19,18 +19,19 @@ func NewJWTGenerator(secret string) *JWTGenerator {
 }
 
 func (j *JWTGenerator) GenerateAccess(
-	userID, sessionID, role string,
+	userID, sessionID string,
 	duration time.Duration,
 ) (contracts.Token, error) {
 
-	exp := time.Now().Add(duration)
+	now := time.Now().UTC()
+	exp := now.Add(duration)
 
 	claims := jwt.MapClaims{
-		"sub":  userID,
-		"sid":  sessionID,
-		"role": role,
-		"exp":  exp.Unix(),
-		"typ":  "access",
+		"sub": userID,
+		"sid": sessionID,
+		"exp": exp.Unix(),
+		"iat": now.Unix(),
+		"typ": "access",
 	}
 
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -50,12 +51,14 @@ func (j *JWTGenerator) GenerateRefresh(
 	duration time.Duration,
 ) (contracts.Token, error) {
 
-	exp := time.Now().Add(duration)
+	now := time.Now().UTC()
+	exp := now.Add(duration)
 
 	claims := jwt.MapClaims{
 		"sub": userID,
 		"sid": sessionID,
 		"exp": exp.Unix(),
+		"iat": now.Unix(),
 		"typ": "refresh",
 	}
 
@@ -73,25 +76,35 @@ func (j *JWTGenerator) GenerateRefresh(
 
 func (j *JWTGenerator) ValidateAccess(
 	tokenStr string,
-) (string, string, string, error) {
+) (string, string, error) {
 
 	tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		// ensure HS256 or other expected HMAC method
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
 		return j.secret, nil
 	})
 	if err != nil || !tok.Valid {
-		return "", "", "", err
+		return "", "", err
 	}
 
-	claims := tok.Claims.(jwt.MapClaims)
-
-	if claims["typ"] != "access" {
-		return "", "", "", errors.New("not an access token")
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", "", errors.New("invalid claims")
 	}
 
-	return claims["sub"].(string),
-		claims["sid"].(string),
-		claims["role"].(string),
-		nil
+	if typ, _ := claims["typ"].(string); typ != "access" {
+		return "", "", errors.New("not an access token")
+	}
+
+	sub, _ := claims["sub"].(string)
+	sid, _ := claims["sid"].(string)
+	if sub == "" || sid == "" {
+		return "", "", errors.New("missing sub or sid")
+	}
+
+	return sub, sid, nil
 }
 
 func (j *JWTGenerator) ValidateRefresh(
@@ -99,19 +112,29 @@ func (j *JWTGenerator) ValidateRefresh(
 ) (string, string, error) {
 
 	tok, err := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
 		return j.secret, nil
 	})
 	if err != nil || !tok.Valid {
 		return "", "", err
 	}
 
-	claims := tok.Claims.(jwt.MapClaims)
+	claims, ok := tok.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", "", errors.New("invalid claims")
+	}
 
-	if claims["typ"] != "refresh" {
+	if typ, _ := claims["typ"].(string); typ != "refresh" {
 		return "", "", errors.New("not a refresh token")
 	}
 
-	return claims["sub"].(string),
-		claims["sid"].(string),
-		nil
+	sub, _ := claims["sub"].(string)
+	sid, _ := claims["sid"].(string)
+	if sub == "" || sid == "" {
+		return "", "", errors.New("missing sub or sid")
+	}
+
+	return sub, sid, nil
 }

@@ -1,6 +1,9 @@
 package contracts
 
-import "time"
+import (
+	"time"
+
+)
 
 type Token struct {
 	Value     string
@@ -14,9 +17,7 @@ type TokenPair struct {
 
 type TokenGenerator interface {
 	GenerateAccess(
-		userID string,
-		sessionID string,
-		role string,
+		userID, sessionID string,
 		duration time.Duration,
 	) (Token, error)
 
@@ -28,7 +29,7 @@ type TokenGenerator interface {
 
 	ValidateAccess(
 		token string,
-	) (userID string, sessionID string, role string, err error)
+	) (userID string, sessionID string, err error)
 
 	ValidateRefresh(
 		token string,

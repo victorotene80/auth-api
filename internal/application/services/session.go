@@ -1,3 +1,4 @@
+// internal/application/services/session_service.go
 package services
 
 import (
@@ -6,34 +7,41 @@ import (
 
 	appContracts "github.com/victorotene80/authentication_api/internal/application/contracts"
 	"github.com/victorotene80/authentication_api/internal/domain/aggregates"
-	"github.com/victorotene80/authentication_api/internal/domain/contracts"
+	domainContracts "github.com/victorotene80/authentication_api/internal/domain/contracts"
 	"github.com/victorotene80/authentication_api/internal/domain/repository"
 	"github.com/victorotene80/authentication_api/internal/domain/services/policy"
 	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
 	"github.com/victorotene80/authentication_api/internal/shared/utils"
 )
 
+// Compile-time check
+var _ appContracts.SessionService = (*sessionService)(nil)
+
 type sessionService struct {
 	sessionRepo    repository.SessionRepository
-	//sessionCache   appContracts.SessionCache
-	tokenGen       contracts.TokenGenerator
+	tokenGen       domainContracts.TokenGenerator
 	uow            appContracts.UnitOfWork
 	hasher         *utils.SessionKeyHasher
 	policy         policy.SessionPolicy
 	clock          func() time.Time
 	eventPublisher appContracts.EventPublisher
+	geoIP          appContracts.GeoIPService
 }
 
 func NewSessionService(
 	sessionRepo repository.SessionRepository,
-	//sessionCache appContracts.SessionCache,
-	tokenGen contracts.TokenGenerator,
+	tokenGen domainContracts.TokenGenerator,
 	uow appContracts.UnitOfWork,
 	hasher *utils.SessionKeyHasher,
 	policy policy.SessionPolicy,
 	clock func() time.Time,
 	eventPublisher appContracts.EventPublisher,
-) contracts.SessionService {
+	geoIP appContracts.GeoIPService,
+) appContracts.SessionService {
+	if clock == nil {
+		clock = func() time.Time { return time.Now().UTC() }
+	}
+
 	return &sessionService{
 		sessionRepo:    sessionRepo,
 		tokenGen:       tokenGen,
@@ -42,72 +50,91 @@ func NewSessionService(
 		policy:         policy,
 		clock:          clock,
 		eventPublisher: eventPublisher,
+		geoIP:          geoIP,
 	}
 }
 
 func (s *sessionService) Create(
 	ctx context.Context,
 	userID string,
-	role valueobjects.Role,
 	ipAddress string,
 	userAgent string,
 	deviceID string,
-) (contracts.SessionResult, error) {
+	deviceFingerprint string,
+	deviceName string,
+) (appContracts.SessionResult, error) {
 
 	now := s.clock()
-	rawRefresh, err := utils.GenerateRandomString(32)
-	if err != nil {
-		return contracts.SessionResult{}, err
+	sessionExpiresAt := s.policy.ComputeExpiresAt(now)
+
+	var countryCode, city string
+	if s.geoIP != nil && ipAddress != "" {
+		if cc, cty, err := s.geoIP.Lookup(ctx, ipAddress); err == nil {
+			countryCode, city = cc, cty
+		}
 	}
 
-	refreshTokenHash, err := valueobjects.NewSessionTokenHash(s.hasher.Hash(rawRefresh))
+	rawSessionKey, err := utils.GenerateRandomString(32)
 	if err != nil {
-		return contracts.SessionResult{}, err
+		return appContracts.SessionResult{}, err
 	}
 
-	var result contracts.SessionResult
+	hashedSessionKey := s.hasher.Hash(rawSessionKey)
+	tokenHashVO, err := valueobjects.NewSessionTokenHash(hashedSessionKey)
+	if err != nil {
+		return appContracts.SessionResult{}, err
+	}
+
+	var result appContracts.SessionResult
 
 	err = s.uow.WithinTransaction(ctx, func(txCtx context.Context) error {
+		// ✅ use real fingerprint + deviceName here
 		session, err := aggregates.NewSession(
 			userID,
-			role,
-			refreshTokenHash,
+			tokenHashVO,
+			nil, // refresh token hash set later
 			ipAddress,
 			userAgent,
-			deviceID,
+			deviceFingerprint,
+			deviceName,
+			countryCode,
+			city,
 			now,
-			now.Add(s.policy.MaxDuration),
+			sessionExpiresAt,
 		)
-
 		if err != nil {
 			return err
 		}
-
-		if err := s.sessionRepo.Save(txCtx, session); err != nil {
-			return err
-		}
-
-		/*if s.sessionCache != nil {
-			_ = s.sessionCache.Set(txCtx, session)
-		}*/
 
 		accessToken, err := s.tokenGen.GenerateAccess(
 			userID,
 			session.ID(),
-			role.String(),
 			s.policy.MaxDuration,
 		)
-
 		if err != nil {
 			return err
 		}
 
-		refreshToken, err := s.tokenGen.GenerateRefresh(
-			userID,
-			session.ID(),
-			s.policy.RefreshTokenDuration,
-		)
-		if err != nil {
+		var refreshToken domainContracts.Token
+		if s.policy.AllowRefreshToken {
+			refreshToken, err = s.tokenGen.GenerateRefresh(
+				userID,
+				session.ID(),
+				s.policy.RefreshTokenDuration,
+			)
+			if err != nil {
+				return err
+			}
+
+			hashedRefresh := s.hasher.Hash(refreshToken.Value)
+			refreshHashVO, err := valueobjects.NewSessionTokenHash(hashedRefresh)
+			if err != nil {
+				return err
+			}
+			session.SetRefreshTokenHash(refreshHashVO)
+		}
+
+		if err := s.sessionRepo.Save(txCtx, session); err != nil {
 			return err
 		}
 
@@ -115,17 +142,24 @@ func (s *sessionService) Create(
 			txCtx,
 			session.PullEvents(),
 			map[string]string{
-				"aggregate":  "session",
-				"action":     "created",
-				"ip":         ipAddress,
-				"user_agent": userAgent,
-				"device":     deviceID,
+				"aggregate":       "session",
+				"action":          "created",
+				"ip":              ipAddress,
+				"user_agent":      userAgent,
+				"device_id":       deviceID,
+				"fingerprint":     deviceFingerprint,
+				"device_name":     deviceName,
+				"country_code":    countryCode,
+				"city":            city,
+				"session_expires": sessionExpiresAt.UTC().Format(time.RFC3339),
 			},
 		); err != nil {
 			return err
 		}
 
-		result = contracts.SessionResult{
+		session.ClearEvents()
+
+		result = appContracts.SessionResult{
 			SessionID:    session.ID(),
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
@@ -135,5 +169,9 @@ func (s *sessionService) Create(
 		return nil
 	})
 
-	return result, err
+	if err != nil {
+		return appContracts.SessionResult{}, err
+	}
+
+	return result, nil
 }

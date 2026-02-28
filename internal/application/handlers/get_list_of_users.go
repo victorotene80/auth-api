@@ -1,6 +1,6 @@
 package handlers
 
-import (
+/*import (
 	"context"
 
 	"github.com/victorotene80/authentication_api/internal/application/query"
@@ -43,3 +43,4 @@ func (h *ListUsersHandler) Handle(ctx context.Context, q query.ListUsersQuery) (
 
 	return users, total, nil
 }
+*/

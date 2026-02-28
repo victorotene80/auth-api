@@ -15,6 +15,7 @@ type Persistence struct {
 	UserRepo    repository.UserRepository
 	SessionRepo repository.SessionRepository
 	OutboxRepo  contracts.OutboxRepository
+	RoleRepo    repository.RoleRepository
 	UoW         contracts.UnitOfWork
 }
 
@@ -29,6 +30,7 @@ func initializePersistence(cfg *config.Config) (*Persistence, error) {
 		UserRepo:    persistence.NewPostgresUserRepository(db),
 		SessionRepo: persistence.NewPostgresSessionRepository(db),
 		OutboxRepo:  persistence.NewPostgresOutboxRepository(db),
+		RoleRepo:    persistence.NewPgRoleRepository(db),
 		UoW:         persistence.NewSqlUnitOfWork(db),
 	}, nil
 }
