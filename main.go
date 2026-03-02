@@ -5,10 +5,17 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/victorotene80/authentication_api/internal/bootstrap"
 )
 
 func main() {
+
+	if err := godotenv.Load(".env"); err != nil {
+		log.Println("No .env file found or failed to load:", err)
+	}
+
 	app, err := bootstrap.InitializeApp()
 	if err != nil {
 		log.Fatal(err)

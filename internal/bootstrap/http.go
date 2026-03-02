@@ -3,23 +3,32 @@ package bootstrap
 import (
 	"net/http"
 
+	"go.uber.org/zap"
+
+	"github.com/victorotene80/authentication_api/internal/application/contracts"
 	"github.com/victorotene80/authentication_api/internal/application/messaging"
+	appmw "github.com/victorotene80/authentication_api/internal/interfaces/middleware"
+	"github.com/victorotene80/authentication_api/internal/infrastructure/validation"
 	"github.com/victorotene80/authentication_api/internal/interfaces/http/rest"
 	restHandler "github.com/victorotene80/authentication_api/internal/interfaces/http/rest/handler"
-	"github.com/victorotene80/authentication_api/internal/infrastructure/validation"
 )
 
-func initializeHTTP(commandBus *messaging.CommandBus) http.Handler {
+func initializeHTTP(
+	commandBus *messaging.CommandBus,
+	authSvc contracts.AuthService,
+	logger *zap.Logger,
+) http.Handler {
 	validate := validation.NewPlaygroundValidator()
 
-	createUserHandler := restHandler.NewCreateUserHandler(commandBus, validate)
 	loginHandler := restHandler.NewLoginHandler(commandBus, validate)
-	logoutHandler := restHandler.NewLogoutHandler(commandBus, validate)
+	createUserHandler := restHandler.NewCreateUserHandler(commandBus, validate)
+	authMiddleware := appmw.NewAuthMiddleware(authSvc)
 
 	router := rest.NewRouter(
 		createUserHandler,
+		authMiddleware,
+		logger,
 		loginHandler,
-		logoutHandler,
 	)
 
 	return router.Setup()

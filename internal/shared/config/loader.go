@@ -23,10 +23,16 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	geo, err := loadGeoIP()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Security: security,
 		Database: database,
-		Redis: redis,
+		Redis:    redis,
+		GeoIP:    geo,
 	}, nil
 }
 
@@ -111,6 +117,17 @@ func loadDatabase() (DatabaseConfig, error) {
 		SSLMode:      getStringOrDefault("DB_SSLMODE", "disable"),
 		MaxOpenConns: getIntOrDefault("DB_MAX_OPEN", 10),
 		MaxIdleConns: getIntOrDefault("DB_MAX_IDLE", 5),
+	}, nil
+}
+
+func loadGeoIP() (GeoIPConfig, error) {
+	path, err := getString("GEOIP_DB_PATH")
+	if err != nil {
+		return GeoIPConfig{}, err
+	}
+
+	return GeoIPConfig{
+		DBPath: path,
 	}, nil
 }
 

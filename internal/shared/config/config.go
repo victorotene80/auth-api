@@ -1,15 +1,12 @@
 package config
 
-/*import (
-	"fmt"
-	"time"
-)*/
 import "time"
 
 type Config struct {
 	Security SecurityConfig
 	Database DatabaseConfig
 	Redis    RedisConfig
+	GeoIP    GeoIPConfig
 }
 
 type SecurityConfig struct {
@@ -37,4 +34,8 @@ type RedisConfig struct {
 	Password string
 	DB       int
 	TTL      time.Duration
+}
+
+type GeoIPConfig struct {
+	DBPath string
 }

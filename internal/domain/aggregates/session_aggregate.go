@@ -2,6 +2,7 @@ package aggregates
 
 import (
 	"time"
+
 	"github.com/google/uuid"
 
 	events "github.com/victorotene80/authentication_api/internal/domain/events/types"
@@ -18,13 +19,14 @@ const (
 
 type SessionAggregate struct {
 	*AggregateRoot
+
 	id     string
 	userID string
-	tokenHash         valueobjects.SessionTokenHash
-	refreshTokenHash  *valueobjects.SessionTokenHash
-	previousTokenHash *valueobjects.SessionTokenHash
-	rotationID        *string
-	ipAddress        string
+
+	tokenHash        valueobjects.SessionTokenHash
+	refreshTokenHash *valueobjects.SessionTokenHash
+
+	ipAddress         string
 	deviceFingerprint string
 	deviceName        string
 	userAgent         string
@@ -32,18 +34,19 @@ type SessionAggregate struct {
 	city              string
 	isMFAVerified     bool
 	impersonatedBy    *string
-	createdAt   time.Time
+
+	createdAt    time.Time
 	lastActiveAt time.Time
 	expiresAt    time.Time
 	revokedAt    *time.Time
 	revokeReason *string
 }
 
+// Rehydrate from DB row
 func RehydrateSession(
 	id, userID string,
 	tokenHash string,
 	refreshTokenHash *string,
-	prevTokenHash, rotationID *string,
 	ip, userAgent, deviceFingerprint, deviceName, countryCode, city string,
 	isMFAVerified bool,
 	impersonatedBy *string,
@@ -67,15 +70,6 @@ func RehydrateSession(
 		refreshHashVO = &h
 	}
 
-	var prevHashVO *valueobjects.SessionTokenHash
-	if prevTokenHash != nil {
-		h, err := valueobjects.NewSessionTokenHash(*prevTokenHash)
-		if err != nil {
-			return nil, err
-		}
-		prevHashVO = &h
-	}
-
 	ar := NewAggregateRoot(id, version)
 
 	return &SessionAggregate{
@@ -84,8 +78,6 @@ func RehydrateSession(
 		userID:            userID,
 		tokenHash:         currentHash,
 		refreshTokenHash:  refreshHashVO,
-		previousTokenHash: prevHashVO,
-		rotationID:        rotationID,
 		ipAddress:         ip,
 		deviceFingerprint: deviceFingerprint,
 		deviceName:        deviceName,
@@ -116,7 +108,7 @@ func NewSession(
 	expiresAt time.Time,
 ) (*SessionAggregate, error) {
 
-id := uuid.NewString()
+	id := uuid.NewString()
 	ar := NewAggregateRoot(id, 0)
 
 	s := &SessionAggregate{
@@ -125,8 +117,6 @@ id := uuid.NewString()
 		userID:            userID,
 		tokenHash:         tokenHash,
 		refreshTokenHash:  refreshTokenHash,
-		previousTokenHash: nil,
-		rotationID:        nil,
 		ipAddress:         ipAddress,
 		deviceFingerprint: deviceFingerprint,
 		deviceName:        deviceName,
@@ -142,17 +132,16 @@ id := uuid.NewString()
 		revokeReason:      nil,
 	}
 
-    s.RaiseEvent(events.NewSessionCreatedEvent(
-        s.id,
-        s.userID,
-        ipAddress,
-        userAgent,
-        deviceName,
-    ))
+	s.RaiseEvent(events.NewSessionCreatedEvent(
+		s.id,
+		s.userID,
+		ipAddress,
+		userAgent,
+		deviceName,
+	))
 
-    return s, nil
+	return s, nil
 }
-
 
 func (s *SessionAggregate) Status(now time.Time) SessionStatus {
 	if s.revokedAt != nil {
@@ -183,52 +172,45 @@ func (s *SessionAggregate) Revoke(now time.Time, reason string) {
 	s.RaiseEvent(events.NewSessionRevokedEvent(s.id, s.userID, reason))
 }
 
+// Simplified rotate: just update token hash and bump activity.
+// We no longer persist previous hash / rotation id because DB doesn’t have them.
 func (s *SessionAggregate) RotateKey(
 	newTokenHash valueobjects.SessionTokenHash,
-	rotationID string,
 	now time.Time,
 ) {
 	if s.Status(now) != SessionActive {
 		return
 	}
-	if s.rotationID != nil && *s.rotationID == rotationID {
-		return
-	}
 
-	old := s.tokenHash
-	s.previousTokenHash = &old
 	s.tokenHash = newTokenHash
-	s.rotationID = &rotationID
 	s.lastActiveAt = now
 
 	s.RaiseEvent(events.NewSessionAccessedEvent(s.id, s.userID))
 }
 
 func (s *SessionAggregate) SetRefreshTokenHash(hash valueobjects.SessionTokenHash) {
-    s.refreshTokenHash = &hash
+	s.refreshTokenHash = &hash
 }
 
-func (s *SessionAggregate) LastSeenAt() time.Time {
-	return s.lastActiveAt
-}
-
-
-func (s *SessionAggregate) ID() string                         { return s.id }
-func (s *SessionAggregate) UserID() string                     { return s.userID }
+// Getters
+func (s *SessionAggregate) ID() string                          { return s.id }
+func (s *SessionAggregate) UserID() string                      { return s.userID }
 func (s *SessionAggregate) TokenHash() valueobjects.SessionTokenHash {
 	return s.tokenHash
 }
-func (s *SessionAggregate) PreviousTokenHash() *valueobjects.SessionTokenHash {
-	return s.previousTokenHash
+func (s *SessionAggregate) RefreshTokenHash() *valueobjects.SessionTokenHash {
+	return s.refreshTokenHash
 }
-func (s *SessionAggregate) RotationID() *string     { return s.rotationID }
-func (s *SessionAggregate) CreatedAt() time.Time    { return s.createdAt }
-func (s *SessionAggregate) LastActiveAt() time.Time { return s.lastActiveAt }
-func (s *SessionAggregate) ExpiresAt() time.Time    { return s.expiresAt }
-func (s *SessionAggregate) RevokedAt() *time.Time   { return s.revokedAt }
-func (s *SessionAggregate) IPAddress() string       { return s.ipAddress }
-func (s *SessionAggregate) UserAgent() string       { return s.userAgent }
+func (s *SessionAggregate) CreatedAt() time.Time     { return s.createdAt }
+func (s *SessionAggregate) LastActiveAt() time.Time  { return s.lastActiveAt }
+func (s *SessionAggregate) ExpiresAt() time.Time     { return s.expiresAt }
+func (s *SessionAggregate) RevokedAt() *time.Time    { return s.revokedAt }
+func (s *SessionAggregate) RevokeReason() *string    { return s.revokeReason }
+func (s *SessionAggregate) IPAddress() string        { return s.ipAddress }
+func (s *SessionAggregate) UserAgent() string        { return s.userAgent }
 func (s *SessionAggregate) DeviceFingerprint() string { return s.deviceFingerprint }
-func (s *SessionAggregate) DeviceName() string      { return s.deviceName }
-func (s *SessionAggregate) CountryCode() string     { return s.countryCode }
-func (s *SessionAggregate) City() string            { return s.city }
+func (s *SessionAggregate) DeviceName() string       { return s.deviceName }
+func (s *SessionAggregate) CountryCode() string      { return s.countryCode }
+func (s *SessionAggregate) City() string             { return s.city }
+func (s *SessionAggregate) IsMFAVerified() bool      { return s.isMFAVerified }
+func (s *SessionAggregate) ImpersonatedBy() *string  { return s.impersonatedBy }

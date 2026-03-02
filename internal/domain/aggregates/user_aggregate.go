@@ -2,7 +2,6 @@ package aggregates
 
 import (
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,11 +17,10 @@ type UserAggregate struct {
 	User *entities.User
 }
 
-
 func NewUserAggregate(
 	email valueobjects.Email,
 	password valueobjects.Password,
-	firstName, lastName, middleName string,
+	firstName, lastName, middleName, lastLoginIP string,
 	now time.Time,
 ) (*UserAggregate, error) {
 
@@ -35,6 +33,7 @@ func NewUserAggregate(
 		firstName,
 		lastName,
 		middleName,
+		lastLoginIP,
 		now,
 	)
 
@@ -54,7 +53,6 @@ func NewUserAggregate(
 	return agg, nil
 }
 
-
 func NewUserAggregateFromDBRow(
 	id string,
 	email valueobjects.Email,
@@ -64,7 +62,7 @@ func NewUserAggregateFromDBRow(
 	emailVerified bool,
 	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
 	lastLoginAt, lastActiveAt, deletedAt *time.Time,
-	lastLoginIP net.IP,
+	lastLoginIP string,
 	failedAttempts int,
 	createdAt, updatedAt time.Time,
 	version int,
@@ -101,11 +99,10 @@ func NewUserAggregateFromDBRow(
 // RehydrateUser is a convenience that takes raw strings from DB and builds VOs.
 func RehydrateUser(
 	id, emailStr, hashedPassword, statusStr,
-	firstName, lastName, middleName string,
+	firstName, lastName, middleName, lastLoginIP string,
 	emailVerified bool,
 	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
 	lastLoginAt, lastActiveAt, deletedAt *time.Time,
-	lastLoginIP net.IP,
 	failedAttempts int,
 	createdAt, updatedAt time.Time,
 	version int,
@@ -147,7 +144,7 @@ func RehydrateUser(
 	)
 }
 
-func (u *UserAggregate) RecordLogin(now time.Time, ip net.IP) {
+func (u *UserAggregate) RecordLogin(now time.Time, ip string) {
 	u.User.RecordLogin(now, ip)
 
 	u.RaiseEvent(types.NewUserLogInEvent(

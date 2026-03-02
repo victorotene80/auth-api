@@ -8,6 +8,7 @@ import (
 	"github.com/victorotene80/authentication_api/internal/domain/repository"
 	"github.com/victorotene80/authentication_api/internal/infrastructure/persistence"
 	"github.com/victorotene80/authentication_api/internal/shared/config"
+	"go.uber.org/zap"
 )
 
 type Persistence struct {
@@ -19,11 +20,17 @@ type Persistence struct {
 	UoW         contracts.UnitOfWork
 }
 
-func initializePersistence(cfg *config.Config) (*Persistence, error) {
+func initializePersistence(cfg *config.Config, logger *zap.Logger) (*Persistence, error) {
 	db, err := persistence.NewDatabase(cfg.Database)
 	if err != nil {
+		logger.Fatal("failed to initialize database", zap.Error(err))
 		return nil, fmt.Errorf("db init failed: %w", err)
 	}
+
+	logger.Info("database connected",
+		zap.String("addr", fmt.Sprintf("%s:%d", cfg.Database.Host, cfg.Database.Port)),
+		zap.String("db", cfg.Database.Name),
+	)
 
 	return &Persistence{
 		DB:          db,
@@ -34,4 +41,5 @@ func initializePersistence(cfg *config.Config) (*Persistence, error) {
 		UoW:         persistence.NewSqlUnitOfWork(db),
 	}, nil
 }
+
 //pa55w0rd5

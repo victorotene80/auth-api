@@ -3,13 +3,18 @@ package bootstrap
 import (
 	appContracts "github.com/victorotene80/authentication_api/internal/application/contracts"
 	"github.com/victorotene80/authentication_api/internal/infrastructure/messaging/outbox"
+	"go.uber.org/zap"
 )
 
-func initializeEventPublisher(p *Persistence) appContracts.EventPublisher {
+func initializeEventPublisher(
+	p *Persistence,
+	logger *zap.Logger,
+) appContracts.EventPublisher {
+
 	if p.OutboxRepo == nil {
-		panic("Outbox repository is not initialized")
+		logger.Fatal("Outbox repository is nil — cannot initialize event publisher")
 	}
 
-	pub := outbox.NewPublisher(p.OutboxRepo)
-	return pub
+	logger.Info("Initializing event publisher")
+	return outbox.NewPublisher(p.OutboxRepo)
 }

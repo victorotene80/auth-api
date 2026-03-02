@@ -1,27 +1,27 @@
-// internal/infrastructure/persistence/role_repository.go
 package persistence
 
 import (
-	"context"
-	"database/sql"
-	"time"
-	"github.com/victorotene80/authentication_api/internal/domain/entities"
-	"github.com/victorotene80/authentication_api/internal/domain/repository"
+    "context"
+    "database/sql"
+    "time"
+
+    "github.com/victorotene80/authentication_api/internal/domain/entities"
+    "github.com/victorotene80/authentication_api/internal/domain/repository"
 )
 
 type PgRoleRepository struct {
-	db *sql.DB
+    db *sql.DB
 }
+
 func NewPgRoleRepository(db *sql.DB) repository.RoleRepository {
-	return &PgRoleRepository{db: db}
+    return &PgRoleRepository{db: db}
 }
 
 func (r *PgRoleRepository) FindBySlug(
-	ctx context.Context,
-	slug string,
+    ctx context.Context,
+    slug string,
 ) (*entities.Role, error) {
-
-	const q = `
+    const q = `
         SELECT
             id,
             name,
@@ -36,51 +36,51 @@ func (r *PgRoleRepository) FindBySlug(
         LIMIT 1;
     `
 
-	row := r.db.QueryRowContext(ctx, q, slug)
+    exec := ChooseExecutor(ctx, r.db)
+    row := exec.QueryRowContext(ctx, q, slug)
 
-	var (
-		role     entities.Role
-		desc     sql.NullString
-		parentID sql.NullString
-	)
+    var (
+        role     entities.Role
+        desc     sql.NullString
+        parentID sql.NullString
+    )
 
-	err := row.Scan(
-		&role.ID,
-		&role.Name,
-		&role.Slug,
-		&desc,
-		&parentID,
-		&role.IsSystem,
-		&role.CreatedAt,
-		&role.UpdatedAt,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil // "not found"; caller decides behavior
-		}
-		return nil, err
-	}
+    err := row.Scan(
+        &role.ID,
+        &role.Name,
+        &role.Slug,
+        &desc,
+        &parentID,
+        &role.IsSystem,
+        &role.CreatedAt,
+        &role.UpdatedAt,
+    )
+    if err != nil {
+        if err == sql.ErrNoRows {
+            return nil, nil
+        }
+        return nil, err
+    }
 
-	if desc.Valid {
-		role.Description = &desc.String
-	}
-	if parentID.Valid {
-		role.ParentID = &parentID.String
-	}
+    if desc.Valid {
+        role.Description = &desc.String
+    }
+    if parentID.Valid {
+        role.ParentID = &parentID.String
+    }
 
-	return &role, nil
+    return &role, nil
 }
 
 func (r *PgRoleRepository) AssignRole(
-	ctx context.Context,
-	userID string,
-	roleID string,
-	organizationID *string,
-	grantedBy *string,
-	expiresAt *time.Time,
+    ctx context.Context,
+    userID string,
+    roleID string,
+    organizationID *string,
+    grantedBy *string,
+    expiresAt *time.Time,
 ) error {
-
-	const q = `
+    const q = `
         INSERT INTO auth.user_roles (
             user_id,
             role_id,
@@ -93,14 +93,16 @@ func (r *PgRoleRepository) AssignRole(
         DO NOTHING;
     `
 
-	_, err := r.db.ExecContext(
-		ctx,
-		q,
-		userID,
-		roleID,
-		organizationID,
-		grantedBy,
-		expiresAt,
-	)
-	return err
+    exec := ChooseExecutor(ctx, r.db)
+
+    _, err := exec.ExecContext(
+        ctx,
+        q,
+        userID,
+        roleID,
+        organizationID,
+        grantedBy,
+        expiresAt,
+    )
+    return err
 }

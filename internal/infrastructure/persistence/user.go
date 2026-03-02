@@ -5,11 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/victorotene80/authentication_api/internal/domain/aggregates"
+	"github.com/victorotene80/authentication_api/internal/domain/repository"
 	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
 	"github.com/victorotene80/authentication_api/internal/infrastructure/persistence/models"
 )
+
+var _ repository.UserRepository = (*PostgresUserRepository)(nil)
 
 type PostgresUserRepository struct {
 	db *sql.DB
@@ -19,349 +23,497 @@ func NewPostgresUserRepository(db *sql.DB) *PostgresUserRepository {
 	return &PostgresUserRepository{db: db}
 }
 
-func (r *PostgresUserRepository) Create(ctx context.Context, agg *aggregates.UserAggregate) error {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return err
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
 	}
+	return &s
+}
 
-	query := `
-		INSERT INTO users (
+func (r *PostgresUserRepository) Create(
+	ctx context.Context,
+	agg *aggregates.UserAggregate,
+) error {
+	exec := ChooseExecutor(ctx, r.db)
+	u := agg.User
+
+	const q = `
+		INSERT INTO auth.users (
 			id,
 			email,
 			password_hash,
-			role,
 			first_name,
 			last_name,
 			middle_name,
-			is_active,
-			is_verified,
-			last_login_at,
+			status,
+			email_verified,
+			email_verified_at,
+			password_changed_at,
+			password_expires_at,
+			require_password_change,
 			failed_login_attempts,
-			last_failed_at,
-			locked_at,
+			locked_until,
+			last_login_at,
+			last_login_ip,
+			last_active_at,
 			created_at,
 			updated_at,
-			version
+			deleted_at
 		)
 		VALUES (
-			$1, $2, $3, $4,
-			$5, $6, $7, $8,
-			$9, $10, $11, $12,
-			$13, $14, $15, $16
+			$1, $2, $3,
+			$4, $5, $6,
+			$7, $8, $9,
+			$10, $11, $12,
+			$13, $14, $15,
+			$16, $17,
+			$18, $19, $20
 		)
 	`
 
-	_, err = tx.ExecContext(ctx, query,
-		agg.User.ID(),
-		agg.User.Email().String(),
-		agg.User.Password().Value(),
-		agg.User.Role().String(),
-		agg.User.FirstName,
-		agg.User.LastName,
-		agg.User.MiddleName,
-		agg.User.IsActive(),
-		agg.User.IsVerified(),
-		agg.User.LastLoginAt(),
-		agg.User.FailedLoginAttempts,
-		agg.User.LastFailedAt,
-		agg.User.LockedAt,
-		agg.CreatedAt(),
-		agg.UpdatedAt(),
-		agg.Version(),
+	_, err := exec.ExecContext(ctx, q,
+		u.ID(),
+		u.Email().String(),
+		u.Password().Value(),
+		u.FirstName(),
+		u.LastName(),
+		nullIfEmpty(u.MiddleName()),
+		u.Status().String(),
+		u.EmailVerified(),
+		u.EmailVerifiedAt(),
+		u.PasswordChangedAt(),
+		u.PasswordExpiresAt(),
+		u.RequirePasswordChange(),
+		u.FailedLoginAttempts(),
+		u.LockedUntil(),
+		u.LastLoginAt(),
+		nullIfEmpty(u.LastLoginIP()),
+		u.LastActiveAt(),
+		u.CreatedAt(),
+		u.UpdatedAt(),
+		u.DeletedAt(),
 	)
 	return err
 }
 
-func (r *PostgresUserRepository) Update(ctx context.Context, agg *aggregates.UserAggregate) error {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return err
-	}
+func (r *PostgresUserRepository) Update(
+	ctx context.Context,
+	agg *aggregates.UserAggregate,
+) error {
+	exec := ChooseExecutor(ctx, r.db)
+	u := agg.User
 
-	query := `
-		UPDATE users SET
-			email=$1,
-			password_hash=$2,
-			role=$3,
-			first_name=$4,
-			last_name=$5,
-			middle_name=$6,
-			is_active=$7,
-			is_verified=$8,
-			last_login_at=$9,
-			failed_login_attempts=$10,
-			last_failed_at=$11,
-			locked_at=$12,
-			updated_at=$13,
-			version=version+1
-		WHERE id=$14 AND version=$15
-
+	const q = `
+		UPDATE auth.users SET
+			email                   = $1,
+			password_hash           = $2,
+			first_name              = $3,
+			last_name               = $4,
+			middle_name             = $5,
+			status                  = $6,
+			email_verified          = $7,
+			email_verified_at       = $8,
+			password_changed_at     = $9,
+			password_expires_at     = $10,
+			require_password_change = $11,
+			failed_login_attempts   = $12,
+			locked_until            = $13,
+			last_login_at           = $14,
+			last_login_ip           = $15,
+			last_active_at          = $16,
+			updated_at              = $17
+		WHERE id = $18
 	`
 
-	res, err := tx.ExecContext(ctx, query,
-		agg.User.Email().String(),
-		agg.User.Password().Value(),
-		agg.User.Role().String(),
-		agg.User.FirstName,
-		agg.User.LastName,
-		agg.User.MiddleName,
-		agg.User.FailedLoginAttempts,
-		agg.User.LastFailedAt,
-		agg.User.LockedAt,
-		agg.UpdatedAt(),
-		agg.User.ID(),
-		agg.Version(),
+	_, err := exec.ExecContext(ctx, q,
+		u.Email().String(),
+		u.Password().Value(),
+		u.FirstName(),
+		u.LastName(),
+		nullIfEmpty(u.MiddleName()),
+		u.Status().String(),
+		u.EmailVerified(),
+		u.EmailVerifiedAt(),
+		u.PasswordChangedAt(),
+		u.PasswordExpiresAt(),
+		u.RequirePasswordChange(),
+		u.FailedLoginAttempts(),
+		u.LockedUntil(),
+		u.LastLoginAt(),
+		nullIfEmpty(u.LastLoginIP()),
+		u.LastActiveAt(),
+		u.UpdatedAt(),
+		u.ID(),
 	)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected == 0 {
-		return errors.New("optimistic concurrency: user was updated by another process")
-	}
-
-	agg.CommitVersion()
-	return nil
+	return err
 }
 
-func (r *PostgresUserRepository) FindByID(ctx context.Context, id string) (*aggregates.UserAggregate, error) {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (r *PostgresUserRepository) SoftDelete(
+	ctx context.Context,
+	id string,
+) error {
+	exec := ChooseExecutor(ctx, r.db)
 
-	query := `
-		SELECT id,email,password_hash,role,first_name,last_name,middle_name,failed_login_attempts,last_failed_at,locked_at,created_at,updated_at,version
-		FROM users WHERE id=$1
-	`
-
-	row := tx.QueryRowContext(ctx, query, id)
-	m := &models.UserModel{}
-	err = row.Scan(
-		&m.ID,
-		&m.Email,
-		&m.PasswordHash,
-		&m.Role,
-		&m.FirstName,
-		&m.LastName,
-		&m.MiddleName,
-		&m.FailedLoginAttempts,
-		&m.LastFailedAt,
-		&m.LockedAt,
-		&m.CreatedAt,
-		&m.UpdatedAt,
-		&m.Version,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("user not found")
-		}
-		return nil, err
-	}
-
-	return aggregates.RehydrateUser(
-		m.ID,
-		m.Email,
-		m.PasswordHash,
-		m.Role,
-		m.FirstName,
-		m.LastName,
-		m.MiddleName,
-		m.FailedLoginAttempts,
-		m.LastFailedAt,
-		m.LockedAt,
-		m.CreatedAt,
-		m.UpdatedAt,
-		m.Version,
-	)
-}
-
-func (r *PostgresUserRepository) FindByEmail(ctx context.Context, email valueobjects.Email) (*aggregates.UserAggregate, error) {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	query := `
-		SELECT id,email,password_hash,role,first_name,last_name,middle_name,failed_login_attempts,last_failed_at,locked_at,created_at,updated_at,version
-		FROM users WHERE email=$1
-	`
-
-	row := tx.QueryRowContext(ctx, query, email.String())
-	m := &models.UserModel{}
-	err = row.Scan(
-		&m.ID,
-		&m.Email,
-		&m.PasswordHash,
-		&m.Role,
-		&m.FirstName,
-		&m.LastName,
-		&m.MiddleName,
-		&m.FailedLoginAttempts,
-		&m.LastFailedAt,
-		&m.LockedAt,
-		&m.CreatedAt,
-		&m.UpdatedAt,
-		&m.Version,
-	)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("user not found")
-		}
-		return nil, err
-	}
-
-	return aggregates.RehydrateUser(
-		m.ID,
-		m.Email,
-		m.PasswordHash,
-		m.Role,
-		m.FirstName,
-		m.LastName,
-		m.MiddleName,
-		m.FailedLoginAttempts,
-		m.LastFailedAt,
-		m.LockedAt,
-		m.CreatedAt,
-		m.UpdatedAt,
-		m.Version,
-	)
-}
-
-func (r *PostgresUserRepository) ExistsByEmail(ctx context.Context, email valueobjects.Email) (bool, error) {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return false, err
-	}
-
-	var exists bool
-	query := `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)`
-	err = tx.QueryRowContext(ctx, query, email.String()).Scan(&exists)
-	return exists, err
-}
-
-func (r *PostgresUserRepository) Delete(ctx context.Context, id string) error {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return err
-	}
-
-	query := `
-		UPDATE users
+	const q = `
+		UPDATE auth.users
 		SET deleted_at = NOW(), updated_at = NOW()
 		WHERE id = $1 AND deleted_at IS NULL
 	`
 
-	res, err := tx.ExecContext(ctx, query, id)
+	res, err := exec.ExecContext(ctx, q, id)
 	if err != nil {
 		return err
 	}
 
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
 		return errors.New("user not found or already deleted")
 	}
 
 	return nil
 }
 
+func (r *PostgresUserRepository) FindByID(
+	ctx context.Context,
+	id string,
+) (*aggregates.UserAggregate, error) {
+	exec := ChooseExecutor(ctx, r.db)
+
+	const q = `
+		SELECT
+			id,
+			email,
+			password_hash,
+			first_name,
+			last_name,
+			middle_name,
+			status,
+			email_verified,
+			email_verified_at,
+			password_changed_at,
+			password_expires_at,
+			require_password_change,
+			failed_login_attempts,
+			locked_until,
+			last_login_at,
+			last_login_ip,
+			last_active_at,
+			created_at,
+			updated_at,
+			deleted_at
+		FROM auth.users
+		WHERE id = $1
+	`
+
+	row := exec.QueryRowContext(ctx, q, id)
+
+	var m models.UserModel
+	if err := row.Scan(
+		&m.ID,
+		&m.Email,
+		&m.PasswordHash,
+		&m.FirstName,
+		&m.LastName,
+		&m.MiddleName,
+		&m.Status,
+		&m.EmailVerified,
+		&m.EmailVerifiedAt,
+		&m.PasswordChangedAt,
+		&m.PasswordExpiresAt,
+		&m.RequirePasswordChange,
+		&m.FailedLoginAttempts,
+		&m.LockedUntil,
+		&m.LastLoginAt,
+		&m.LastLoginIP,
+		&m.LastActiveAt,
+		&m.CreatedAt,
+		&m.UpdatedAt,
+		&m.DeletedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, err
+	}
+
+	return userAggregateFromModel(&m)
+}
+
+func (r *PostgresUserRepository) FindByEmail(
+	ctx context.Context,
+	email valueobjects.Email,
+) (*aggregates.UserAggregate, error) {
+	exec := ChooseExecutor(ctx, r.db)
+
+	const q = `
+		SELECT
+			id,
+			email,
+			password_hash,
+			first_name,
+			last_name,
+			middle_name,
+			status,
+			email_verified,
+			email_verified_at,
+			password_changed_at,
+			password_expires_at,
+			require_password_change,
+			failed_login_attempts,
+			locked_until,
+			last_login_at,
+			last_login_ip,
+			last_active_at,
+			created_at,
+			updated_at,
+			deleted_at
+		FROM auth.users
+		WHERE email = $1
+		  AND deleted_at IS NULL
+	`
+
+	row := exec.QueryRowContext(ctx, q, email.String())
+
+	var m models.UserModel
+	if err := row.Scan(
+		&m.ID,
+		&m.Email,
+		&m.PasswordHash,
+		&m.FirstName,
+		&m.LastName,
+		&m.MiddleName,
+		&m.Status,
+		&m.EmailVerified,
+		&m.EmailVerifiedAt,
+		&m.PasswordChangedAt,
+		&m.PasswordExpiresAt,
+		&m.RequirePasswordChange,
+		&m.FailedLoginAttempts,
+		&m.LockedUntil,
+		&m.LastLoginAt,
+		&m.LastLoginIP,
+		&m.LastActiveAt,
+		&m.CreatedAt,
+		&m.UpdatedAt,
+		&m.DeletedAt,
+	); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, err
+	}
+
+	return userAggregateFromModel(&m)
+}
+
+func (r *PostgresUserRepository) ExistsByEmail(
+	ctx context.Context,
+	email valueobjects.Email,
+) (bool, error) {
+	exec := ChooseExecutor(ctx, r.db)
+
+	const q = `
+		SELECT EXISTS(
+			SELECT 1 FROM auth.users
+			WHERE email = $1
+			  AND deleted_at IS NULL
+		)
+	`
+
+	var exists bool
+	if err := exec.QueryRowContext(ctx, q, email.String()).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 func (r *PostgresUserRepository) List(
 	ctx context.Context,
-	page, pageSize int,
-	role *valueobjects.Role,
-	isActive *bool,
-) ([]*aggregates.UserAggregate, int64, error) {
-
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, 0, err
+	limit int,
+	cursor *string,
+	status *valueobjects.UserStatus,
+) ([]*aggregates.UserAggregate, *string, error) {
+	if limit <= 0 {
+		limit = 20
 	}
 
-	offset := (page - 1) * pageSize
+	exec := ChooseExecutor(ctx, r.db)
 
-	// Build query dynamically based on filters
-	query := `
-		SELECT id,email,password_hash,role,first_name,last_name,middle_name,
-		       failed_login_attempts,last_failed_at,locked_at,
-		       created_at,updated_at,version
-		FROM users
+	args := []any{}
+	arg := 1
+
+	q := `
+		SELECT
+			id,
+			email,
+			password_hash,
+			first_name,
+			last_name,
+			middle_name,
+			status,
+			email_verified,
+			email_verified_at,
+			password_changed_at,
+			password_expires_at,
+			require_password_change,
+			failed_login_attempts,
+			locked_until,
+			last_login_at,
+			last_login_ip,
+			last_active_at,
+			created_at,
+			updated_at,
+			deleted_at
+		FROM auth.users
 		WHERE deleted_at IS NULL
 	`
-	args := []interface{}{}
-	argIdx := 1
 
-	if role != nil {
-		query += fmt.Sprintf(" AND role=$%d", argIdx)
-		args = append(args, role.String())
-		argIdx++
-	}
-	if isActive != nil {
-		query += fmt.Sprintf(" AND is_active=$%d", argIdx)
-		args = append(args, *isActive)
-		argIdx++
+	if status != nil {
+		q += fmt.Sprintf(" AND status = $%d", arg)
+		args = append(args, status.String())
+		arg++
 	}
 
-	query += " ORDER BY created_at DESC LIMIT $%d OFFSET $%d"
-	args = append(args, pageSize, offset)
-	query = fmt.Sprintf(query, argIdx, argIdx+1)
+	if cursor != nil && *cursor != "" {
+		q += fmt.Sprintf(" AND id > $%d", arg)
+		args = append(args, *cursor)
+		arg++
+	}
 
-	rows, err := tx.QueryContext(ctx, query, args...)
+	q += fmt.Sprintf(" ORDER BY id ASC LIMIT $%d", arg)
+	args = append(args, limit+1) // limit+1 to detect "has next"
+
+	rows, err := exec.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, nil, err
 	}
 	defer rows.Close()
 
-	var users []*aggregates.UserAggregate
+	var (
+		users      []*aggregates.UserAggregate
+		lastUserID string
+		count      int
+	)
+
 	for rows.Next() {
 		var m models.UserModel
 		if err := rows.Scan(
 			&m.ID,
 			&m.Email,
 			&m.PasswordHash,
-			&m.Role,
 			&m.FirstName,
 			&m.LastName,
 			&m.MiddleName,
+			&m.Status,
+			&m.EmailVerified,
+			&m.EmailVerifiedAt,
+			&m.PasswordChangedAt,
+			&m.PasswordExpiresAt,
+			&m.RequirePasswordChange,
 			&m.FailedLoginAttempts,
-			&m.LastFailedAt,
-			&m.LockedAt,
+			&m.LockedUntil,
+			&m.LastLoginAt,
+			&m.LastLoginIP,
+			&m.LastActiveAt,
 			&m.CreatedAt,
 			&m.UpdatedAt,
-			&m.Version,
+			&m.DeletedAt,
 		); err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
 
-		agg, err := aggregates.RehydrateUser(
-			m.ID,
-			m.Email,
-			m.PasswordHash,
-			m.Role,
-			m.FirstName,
-			m.LastName,
-			m.MiddleName,
-			m.FailedLoginAttempts,
-			m.LastFailedAt,
-			m.LockedAt,
-			m.CreatedAt,
-			m.UpdatedAt,
-			m.Version,
-		)
+		count++
+		if count > limit {
+			lastUserID = m.ID
+			break
+		}
+
+		agg, err := userAggregateFromModel(&m)
 		if err != nil {
-			return nil, 0, err
+			return nil, nil, err
 		}
-
 		users = append(users, agg)
+		lastUserID = m.ID
 	}
 
-	// Count total records for pagination
-	countQuery := `SELECT COUNT(*) FROM users WHERE deleted_at IS NULL`
-	var total int64
-	if err := tx.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
-		return nil, 0, err
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
 	}
 
-	return users, total, nil
+	var nextCursor *string
+	if count > limit && lastUserID != "" {
+		nextCursor = &lastUserID
+	}
+
+	return users, nextCursor, nil
+}
+
+func userAggregateFromModel(m *models.UserModel) (*aggregates.UserAggregate, error) {
+	var middleName string
+	if m.MiddleName.Valid {
+		middleName = m.MiddleName.String
+	}
+
+	var emailVerifiedAt *time.Time
+	if m.EmailVerifiedAt.Valid {
+		emailVerifiedAt = &m.EmailVerifiedAt.Time
+	}
+
+	var passwordChangedAt *time.Time
+	if m.PasswordChangedAt.Valid {
+		passwordChangedAt = &m.PasswordChangedAt.Time
+	}
+
+	var passwordExpiresAt *time.Time
+	if m.PasswordExpiresAt.Valid {
+		passwordExpiresAt = &m.PasswordExpiresAt.Time
+	}
+
+	var lockedUntil *time.Time
+	if m.LockedUntil.Valid {
+		lockedUntil = &m.LockedUntil.Time
+	}
+
+	var lastLoginAt *time.Time
+	if m.LastLoginAt.Valid {
+		lastLoginAt = &m.LastLoginAt.Time
+	}
+
+	var lastActiveAt *time.Time
+	if m.LastActiveAt.Valid {
+		lastActiveAt = &m.LastActiveAt.Time
+	}
+
+	var deletedAt *time.Time
+	if m.DeletedAt.Valid {
+		deletedAt = &m.DeletedAt.Time
+	}
+
+	var lastLoginIP string
+	if m.LastLoginIP.Valid {
+		lastLoginIP = m.LastLoginIP.String
+	}
+
+	return aggregates.RehydrateUser(
+		m.ID,
+		m.Email,
+		m.PasswordHash,
+		m.Status,
+		m.FirstName,
+		m.LastName,
+		middleName,
+		lastLoginIP,          
+		m.EmailVerified,
+		emailVerifiedAt,
+		passwordChangedAt,
+		passwordExpiresAt,
+		lockedUntil,
+		lastLoginAt,
+		lastActiveAt,
+		deletedAt,
+		m.FailedLoginAttempts,
+		m.CreatedAt,
+		m.UpdatedAt,
+		0,
+	)
 }

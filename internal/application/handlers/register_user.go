@@ -1,4 +1,3 @@
-// internal/application/handlers/create_user_handler.go
 package handlers
 
 import (
@@ -99,25 +98,23 @@ func (h *CreateUserHandler) Handle(
 			cmd.FirstName,
 			cmd.LastName,
 			middleName,
+			cmd.IPAddress,
 			now,
 		)
 		if err != nil {
 			return err
 		}
 
-		// 1) Persist user
 		if err := h.userRepo.Create(txCtx, agg); err != nil {
 			return err
 		}
 
-		// 2) Extract fields for later use
 		u := agg.User
 		userID = u.ID()
 		emailStr = u.Email().String()
 		firstName = u.FirstName()
 		lastName = u.LastName()
 
-		// 3) Assign default role "member"
 		role, err := h.roleRepo.FindBySlug(txCtx, "member")
 		if err != nil {
 			return err
@@ -137,7 +134,6 @@ func (h *CreateUserHandler) Handle(
 			return err
 		}
 
-		// 4) Publish domain events
 		meta := messaging.Context{
 			Aggregate: "user",
 			Action:    "created",
@@ -157,7 +153,6 @@ func (h *CreateUserHandler) Handle(
 		return nil, err
 	}
 
-	// 5) Create session + tokens (outside DB tx)
 	sessionResult, err := h.sessionService.Create(
 		ctx,
 		userID,

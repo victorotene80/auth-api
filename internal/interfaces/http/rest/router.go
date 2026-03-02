@@ -4,43 +4,52 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
+	chiMw "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"go.uber.org/zap"
 
 	"github.com/victorotene80/authentication_api/internal/interfaces/http/rest/handler"
+	appmw "github.com/victorotene80/authentication_api/internal/interfaces/middleware"
 )
 
 type Router struct {
 	mux *chi.Mux
 
+	Logger         *zap.Logger
+	AuthMiddleware *appmw.AuthMiddleware
+
 	CreateUserHandler *handler.CreateUserHandler
 	LoginHandler      *handler.LoginHandler
-	LogoutHandler     *handler.LogoutHandler
-
-	// TODO: Add other handlers like RefreshHandler, ChangePasswordHandler, etc.
+	// LogoutHandler     *handler.LogoutHandler
 }
 
 func NewRouter(
 	createUserHandler *handler.CreateUserHandler,
+	authMiddleware *appmw.AuthMiddleware,
+	logger *zap.Logger,
 	loginHandler *handler.LoginHandler,
-	logoutHandler *handler.LogoutHandler,
+	// logoutHandler *handler.LogoutHandler,
 ) *Router {
 	return &Router{
 		mux:               chi.NewRouter(),
+		Logger:            logger,
 		CreateUserHandler: createUserHandler,
+		AuthMiddleware:    authMiddleware,
 		LoginHandler:      loginHandler,
-		LogoutHandler:     logoutHandler,
+		// LogoutHandler:     logoutHandler,
 	}
 }
 
 func (rt *Router) Setup() http.Handler {
-	rt.mux.Use(middleware.Logger)    // logs requests
-	rt.mux.Use(middleware.Recoverer) // recovers panics
-	rt.mux.Use(middleware.RequestID) // injects request IDs
-	rt.mux.Use(middleware.RealIP)    // extracts real IP
+	rt.mux.Use(chiMw.RequestID) // injects request IDs
+	rt.mux.Use(chiMw.RealIP)    // extracts real IP
+	rt.mux.Use(appmw.PanicRecovery(rt.Logger))
+	rt.mux.Use(appmw.RequestMetadata)
+	rt.mux.Use(chiMw.Logger) // optional: Chi's default logger (can remove if noisy)
+
 	rt.mux.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST"}, //, "PUT", "DELETE", "OPTIONS"},
+		AllowedMethods:   []string{"GET", "POST"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},
 		AllowCredentials: true,
@@ -49,25 +58,21 @@ func (rt *Router) Setup() http.Handler {
 
 	rt.mux.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	})
 
-
 	rt.mux.Route("/api/v1", func(r chi.Router) {
-
 		r.Post("/auth/register", func(w http.ResponseWriter, r *http.Request) {
 			rt.CreateUserHandler.CreateUser(w, r)
 		})
+
 		r.Post("/auth/login", func(w http.ResponseWriter, r *http.Request) {
 			rt.LoginHandler.Login(w, r)
 		})
 
 		r.Group(func(r chi.Router) {
-			// TODO: add authentication middleware here
-			// r.Use(AuthMiddleware)
+			r.Use(rt.AuthMiddleware.Handle)
 
-			// Session routes
-			//r.Post("/auth/logout", rt.LogoutHandler.Logout)
 			r.Post("/auth/refresh", nil)         // TODO
 			r.Post("/auth/change-password", nil) // TODO
 

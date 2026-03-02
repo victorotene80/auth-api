@@ -1,4 +1,3 @@
-// internal/application/services/session_service.go
 package services
 
 import (
@@ -6,15 +5,16 @@ import (
 	"time"
 
 	appContracts "github.com/victorotene80/authentication_api/internal/application/contracts"
+	"github.com/victorotene80/authentication_api/internal/application/dto"
 	"github.com/victorotene80/authentication_api/internal/domain/aggregates"
 	domainContracts "github.com/victorotene80/authentication_api/internal/domain/contracts"
 	"github.com/victorotene80/authentication_api/internal/domain/repository"
 	"github.com/victorotene80/authentication_api/internal/domain/services/policy"
 	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
+	"github.com/victorotene80/authentication_api/internal/infrastructure/persistence/cache"
 	"github.com/victorotene80/authentication_api/internal/shared/utils"
 )
 
-// Compile-time check
 var _ appContracts.SessionService = (*sessionService)(nil)
 
 type sessionService struct {
@@ -26,6 +26,8 @@ type sessionService struct {
 	clock          func() time.Time
 	eventPublisher appContracts.EventPublisher
 	geoIP          appContracts.GeoIPService
+	sessionCache   appContracts.Cache[string, cache.CachedSession]
+	auditLogger    appContracts.AuditLogger
 }
 
 func NewSessionService(
@@ -37,6 +39,8 @@ func NewSessionService(
 	clock func() time.Time,
 	eventPublisher appContracts.EventPublisher,
 	geoIP appContracts.GeoIPService,
+	sessionCache appContracts.Cache[string, cache.CachedSession],
+	auditLogger appContracts.AuditLogger,
 ) appContracts.SessionService {
 	if clock == nil {
 		clock = func() time.Time { return time.Now().UTC() }
@@ -51,6 +55,8 @@ func NewSessionService(
 		clock:          clock,
 		eventPublisher: eventPublisher,
 		geoIP:          geoIP,
+		sessionCache:   sessionCache,
+		auditLogger:    auditLogger,
 	}
 }
 
@@ -88,11 +94,10 @@ func (s *sessionService) Create(
 	var result appContracts.SessionResult
 
 	err = s.uow.WithinTransaction(ctx, func(txCtx context.Context) error {
-		// ✅ use real fingerprint + deviceName here
 		session, err := aggregates.NewSession(
 			userID,
 			tokenHashVO,
-			nil, // refresh token hash set later
+			nil,
 			ipAddress,
 			userAgent,
 			deviceFingerprint,
@@ -166,11 +171,49 @@ func (s *sessionService) Create(
 			ExpiresAt:    accessToken.ExpiresAt,
 		}
 
+		if s.sessionCache != nil {
+			cached := cache.MapAggregateToCached(session)
+			_ = s.sessionCache.Set(txCtx, session.TokenHash().Value(), &cached)
+		}
+
 		return nil
 	})
 
 	if err != nil {
 		return appContracts.SessionResult{}, err
+	}
+
+	if s.auditLogger != nil {
+		userIDCopy := userID
+		sessionIDCopy := result.SessionID
+		ipCopy := ipAddress
+		uaCopy := userAgent
+		countryCopy := countryCode
+
+		meta := map[string]any{
+			"device_id":       deviceID,
+			"device_name":     deviceName,
+			"fingerprint":     deviceFingerprint,
+			"city":            city,
+			"session_expires": result.ExpiresAt.UTC().Format(time.RFC3339),
+		}
+
+		rec := dto.AuditRecord{
+			Action: dto.AuditActionLoginSuccess, 
+			UserID: &userIDCopy,
+			ActorID:   &userIDCopy,
+			SessionID: &sessionIDCopy,
+
+			IPAddress:   &ipCopy,
+			UserAgent:   &uaCopy,
+			CountryCode: &countryCopy,
+			TargetResource: nil, 
+			TargetID:       &sessionIDCopy,
+			Metadata: meta,
+			Success:  true,
+		}
+
+		_ = s.auditLogger.Log(ctx, rec) 
 	}
 
 	return result, nil

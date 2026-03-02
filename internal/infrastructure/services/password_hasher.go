@@ -1,39 +1,35 @@
 package services
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"errors"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 type BcryptPasswordHasher struct {
+	pepper []byte
 	cost   int
-	pepper string
 }
 
 func NewBcryptPasswordHasher(pepper string, cost int) (*BcryptPasswordHasher, error) {
-	if pepper == "" {
-		return nil, errors.New("password pepper must not be empty")
-	}
-
-	if cost == 0 {
-		cost = bcrypt.DefaultCost
+	if len(pepper) == 0 {
+		return nil, errors.New("pepper must not be empty")
 	}
 
 	return &BcryptPasswordHasher{
+		pepper: []byte(pepper),
 		cost:   cost,
-		pepper: pepper,
 	}, nil
 }
 
 func (h *BcryptPasswordHasher) Hash(password string) (string, error) {
-	// password + pepper (pepper is NOT stored)
-	peppered := password + h.pepper
+	mac := hmac.New(sha256.New, h.pepper)
+	mac.Write([]byte(password))
+	derived := mac.Sum(nil)
 
-	hashed, err := bcrypt.GenerateFromPassword(
-		[]byte(peppered),
-		h.cost,
-	)
+	hashed, err := bcrypt.GenerateFromPassword(derived, h.cost)
 	if err != nil {
 		return "", err
 	}
@@ -41,12 +37,14 @@ func (h *BcryptPasswordHasher) Hash(password string) (string, error) {
 	return string(hashed), nil
 }
 
-func (h *BcryptPasswordHasher) Verify(plain string, hash string) bool {
-	peppered := plain + h.pepper
+func (h *BcryptPasswordHasher) Verify(plain, hash string) bool {
+	mac := hmac.New(sha256.New, h.pepper)
+	mac.Write([]byte(plain))
+	derived := mac.Sum(nil)
 
 	err := bcrypt.CompareHashAndPassword(
 		[]byte(hash),
-		[]byte(peppered),
+		derived,
 	)
 
 	return err == nil

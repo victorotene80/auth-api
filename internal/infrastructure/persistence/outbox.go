@@ -21,6 +21,8 @@ func NewPostgresOutboxRepository(db *sql.DB) *PostgresOutboxRepository {
 }
 
 func (r *PostgresOutboxRepository) Add(ctx context.Context, envelope messaging.Envelope) error {
+	exec := ChooseExecutor(ctx, r.db)
+
 	metadataJSON, err := json.Marshal(envelope.Metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
@@ -39,12 +41,12 @@ func (r *PostgresOutboxRepository) Add(ctx context.Context, envelope messaging.E
 	}
 
 	query := `
-		INSERT INTO outbox_events
-		(id, aggregate_id, event_name, payload, occurred_at, version, metadata, aggregate_type, status)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-	`
+		INSERT INTO auth.outbox_events
+        (id, aggregate_id, event_name, payload, occurred_at, version, metadata, aggregate_type, status)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `
 
-	_, err = r.db.ExecContext(ctx, query,
+	_, err = exec.ExecContext(ctx, query,
 		model.ID,
 		model.AggregateID,
 		model.EventName,
@@ -55,7 +57,6 @@ func (r *PostgresOutboxRepository) Add(ctx context.Context, envelope messaging.E
 		model.AggregateType,
 		model.Status,
 	)
-
 	if err != nil {
 		return fmt.Errorf("failed to insert outbox event: %w", err)
 	}

@@ -2,7 +2,6 @@ package entities
 
 import (
 	"errors"
-	"net"
 	"time"
 
 	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
@@ -24,7 +23,7 @@ type User struct {
 	failedLoginAttempts   int
 	lockedUntil           *time.Time
 	lastLoginAt           *time.Time
-	lastLoginIP           net.IP
+	lastLoginIP           string
 	lastActiveAt          *time.Time
 	createdAt             time.Time
 	updatedAt             time.Time
@@ -35,7 +34,7 @@ func NewUserForRegistration(
 	id string,
 	email valueobjects.Email,
 	password valueobjects.Password,
-	firstName, lastName, middleName string,
+	firstName, lastName, middleName, lastLoginIP string,
 	now time.Time,
 ) *User {
 	return &User{
@@ -54,7 +53,7 @@ func NewUserForRegistration(
 		failedLoginAttempts:   0,
 		lockedUntil:           nil,
 		lastLoginAt:           nil,
-		lastLoginIP:           nil,
+		lastLoginIP:           lastLoginIP,
 		lastActiveAt:          nil,
 		createdAt:             now,
 		updatedAt:             now,
@@ -72,7 +71,7 @@ func NewUserFromDB(
 	emailVerified bool,
 	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
 	lastLoginAt, lastActiveAt, deletedAt *time.Time,
-	lastLoginIP net.IP,
+	lastLoginIP string,
 	failedAttempts int,
 	createdAt, updatedAt time.Time,
 ) *User {
@@ -121,7 +120,7 @@ func (u *User) SetStatus(status valueobjects.UserStatus) {
 	u.status = status
 }
 
-func (u *User) RecordLogin(at time.Time, ip net.IP) {
+func (u *User) RecordLogin(at time.Time, ip string) {
 	u.lastLoginAt = &at
 	u.lastLoginIP = ip
 	u.lastActiveAt = &at
@@ -165,6 +164,17 @@ func (u *User) IncrementFailedLogin() error {
 	return nil
 }
 
+func (u *User) PasswordChangedAt() *time.Time {
+	return u.passwordChangedAt
+}
+
+func (u *User) PasswordExpiresAt() *time.Time {
+	return u.passwordExpiresAt
+}
+
+func (u *User) RequirePasswordChange() bool {
+	return u.requirePasswordChange
+}
 
 func (u *User) LockUntil(until time.Time) {
 	u.lockedUntil = &until
@@ -193,7 +203,7 @@ func (u *User) EmailVerifiedAt() *time.Time     { return u.emailVerifiedAt }
 func (u *User) FailedLoginAttempts() int        { return u.failedLoginAttempts }
 func (u *User) LockedUntil() *time.Time         { return u.lockedUntil }
 func (u *User) LastLoginAt() *time.Time         { return u.lastLoginAt }
-func (u *User) LastLoginIP() net.IP             { return u.lastLoginIP }
+func (u *User) LastLoginIP() string             { return u.lastLoginIP }
 func (u *User) LastActiveAt() *time.Time        { return u.lastActiveAt }
 func (u *User) CreatedAt() time.Time            { return u.createdAt }
 func (u *User) UpdatedAt() time.Time            { return u.updatedAt }

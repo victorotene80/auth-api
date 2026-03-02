@@ -8,10 +8,13 @@ import (
 
 	"github.com/victorotene80/authentication_api/internal/domain/aggregates"
 	events "github.com/victorotene80/authentication_api/internal/domain/events/types"
+	"github.com/victorotene80/authentication_api/internal/domain/repository"
 	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
 	"github.com/victorotene80/authentication_api/internal/infrastructure"
 	"github.com/victorotene80/authentication_api/internal/infrastructure/persistence/models"
 )
+
+var _ repository.SessionRepository = (*PostgresSessionRepository)(nil)
 
 type PostgresSessionRepository struct {
 	db *sql.DB
@@ -21,85 +24,141 @@ func NewPostgresSessionRepository(db *sql.DB) *PostgresSessionRepository {
 	return &PostgresSessionRepository{db: db}
 }
 
-func (r *PostgresSessionRepository) Save(ctx context.Context, s *aggregates.SessionAggregate) error {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return err
+func stringPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
 	}
-
-	query := `
-		UPDATE sessions
-		SET token_hash = $1,
-			previous_token_hash = $2,
-			rotation_id = $3,
-			role = $4,
-			status = $5,
-			last_seen_at = $6,
-			revoked_at = $7,
-			expires_at = $8,
-			version = version + 1
-		WHERE id = $9 AND version = $10
-	`
-
-	prevHash := sql.NullString{}
-	if s.PreviousTokenHash() != nil {
-		prevHash = sql.NullString{String: s.PreviousTokenHash().Value(), Valid: true}
-	}
-
-	rotationID := sql.NullString{}
-	if s.RotationID() != nil {
-		rotationID = sql.NullString{String: *s.RotationID(), Valid: true}
-	}
-
-	res, err := tx.ExecContext(ctx, query,
-		s.TokenHash().Value(),
-		prevHash,
-		rotationID,
-		s.Role().String(), // role
-		string(s.Status()),
-		s.LastSeenAt(),
-		s.RevokedAt(),
-		s.ExpiresAt(),
-		s.ID(),
-		s.Version(),
-	)
-	if err != nil {
-		return err
-	}
-
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return infrastructure.ErrConflict
-	}
-
-	s.CommitVersion()
-	return nil
+	return &s
 }
 
-func (r *PostgresSessionRepository) FindByID(ctx context.Context, id string) (*aggregates.SessionAggregate, error) {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, err
+func hashPtrToStringPtr(h *valueobjects.SessionTokenHash) *string {
+	if h == nil {
+		return nil
 	}
+	v := h.Value()
+	return &v
+}
 
-	query := `
-		SELECT id, user_id, role, token_hash, previous_token_hash, rotation_id,
-		       ip_address, device_id, user_agent,
-		       status, created_at, last_seen_at, expires_at, revoked_at, version
-		FROM sessions
-		WHERE id = $1
-	`
+func (r *PostgresSessionRepository) Save(
+	ctx context.Context,
+	s *aggregates.SessionAggregate,
+) error {
+	exec := ChooseExecutor(ctx, r.db)
+
+	const q = `
+INSERT INTO auth.sessions (
+    id,
+    user_id,
+    token_hash,
+    refresh_token_hash,
+    ip_address,
+    user_agent,
+    device_fingerprint,
+    device_name,
+    country_code,
+    city,
+    is_mfa_verified,
+    impersonated_by,
+    last_active_at,
+    expires_at,
+    revoked_at,
+    revoke_reason,
+    created_at
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8,
+    $9, $10, $11, $12,
+    $13, $14, $15, $16,
+    $17
+)
+ON CONFLICT (id) DO UPDATE SET
+    token_hash        = EXCLUDED.token_hash,
+    refresh_token_hash = EXCLUDED.refresh_token_hash,
+    ip_address        = EXCLUDED.ip_address,
+    user_agent        = EXCLUDED.user_agent,
+    device_fingerprint = EXCLUDED.device_fingerprint,
+    device_name       = EXCLUDED.device_name,
+    country_code      = EXCLUDED.country_code,
+    city              = EXCLUDED.city,
+    is_mfa_verified   = EXCLUDED.is_mfa_verified,
+    impersonated_by   = EXCLUDED.impersonated_by,
+    last_active_at    = EXCLUDED.last_active_at,
+    expires_at        = EXCLUDED.expires_at,
+    revoked_at        = EXCLUDED.revoked_at,
+    revoke_reason     = EXCLUDED.revoke_reason
+`
+
+	_, err := exec.ExecContext(ctx, q,
+		s.ID(),
+		s.UserID(),
+		s.TokenHash().Value(),
+		hashPtrToStringPtr(s.RefreshTokenHash()),
+		stringPtrOrNil(s.IPAddress()),
+		stringPtrOrNil(s.UserAgent()),
+		stringPtrOrNil(s.DeviceFingerprint()),
+		stringPtrOrNil(s.DeviceName()),
+		stringPtrOrNil(s.CountryCode()),
+		stringPtrOrNil(s.City()),
+		s.IsMFAVerified(),
+		s.ImpersonatedBy(),
+		s.LastActiveAt(),
+		s.ExpiresAt(),
+		s.RevokedAt(),
+		s.RevokeReason(),
+		s.CreatedAt(),
+	)
+	return err
+}
+
+func (r *PostgresSessionRepository) FindByID(
+	ctx context.Context,
+	id string,
+) (*aggregates.SessionAggregate, error) {
+	exec := ChooseExecutor(ctx, r.db)
+
+	const q = `
+SELECT
+    id,
+    user_id,
+    token_hash,
+    refresh_token_hash,
+    ip_address,
+    user_agent,
+    device_fingerprint,
+    device_name,
+    country_code,
+    city,
+    is_mfa_verified,
+    impersonated_by,
+    last_active_at,
+    expires_at,
+    revoked_at,
+    revoke_reason,
+    created_at
+FROM auth.sessions
+WHERE id = $1
+`
 
 	var m models.Session
-	err = tx.QueryRowContext(ctx, query, id).Scan(
-		&m.ID, &m.UserID, &m.Role, &m.TokenHash, &m.PreviousTokenHash, &m.RotationID,
-		&m.IPAddress, &m.DeviceID, &m.UserAgent,
-		&m.Status, &m.CreatedAt, &m.LastSeenAt, &m.ExpiresAt, &m.RevokedAt, &m.Version,
-	)
-	if err != nil {
+	if err := exec.QueryRowContext(ctx, q, id).Scan(
+		&m.ID,
+		&m.UserID,
+		&m.TokenHash,
+		&m.RefreshTokenHash,
+		&m.IPAddress,
+		&m.UserAgent,
+		&m.DeviceFingerprint,
+		&m.DeviceName,
+		&m.CountryCode,
+		&m.City,
+		&m.IsMFAVerified,
+		&m.ImpersonatedBy,
+		&m.LastActiveAt,
+		&m.ExpiresAt,
+		&m.RevokedAt,
+		&m.RevokeReason,
+		&m.CreatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, infrastructure.ErrSessionNotFound
 		}
@@ -109,162 +168,157 @@ func (r *PostgresSessionRepository) FindByID(ctx context.Context, id string) (*a
 	return mapSessionModelToAggregate(m)
 }
 
-/*func (r *PostgresSessionRepository) RotateSessionToken(
+func (r *PostgresSessionRepository) RotateSessionToken(
 	ctx context.Context,
 	sessionID string,
 	newToken valueobjects.SessionTokenHash,
-	rotationID string,
+	_ string, // rotationID unused now (DB has no place to store it)
 	now time.Time,
 ) (*aggregates.SessionAggregate, error) {
-	session, err := r.FindByID(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := session.RotateKey(newToken, rotationID, now); err != nil {
-		return nil, err
-	}
-
-	if err := r.Save(ctx, session); err != nil {
-		return nil, err
-	}
-
-	return session, nil
-}*/
-
-func (r *PostgresSessionRepository) RotateSessionToken(ctx context.Context, sessionID string, newToken valueobjects.SessionTokenHash, rotationID string, now time.Time) (*aggregates.SessionAggregate, error) {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, err
-	}
+	exec := ChooseExecutor(ctx, r.db)
 
 	session, err := r.FindByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	oldToken := session.TokenHash()
-
-	if err := session.RotateKey(newToken, rotationID, now); err != nil {
-		return nil, err
+	if !session.IsValid(now) {
+		return nil, infrastructure.ErrSessionNotFound
 	}
 
-	prevHash := sql.NullString{
-		String: oldToken.Value(),
-		Valid:  true,
-	}
+	session.RotateKey(newToken, now)
 
-	rotation := sql.NullString{
-		String: rotationID,
-		Valid:  true,
-	}
-
-	res, err := tx.ExecContext(ctx, `
-		UPDATE sessions
+	const q = `
+		UPDATE auth.sessions
 		SET token_hash = $1,
-		    previous_token_hash = $2,
-		    rotation_id = $3,
-		    last_seen_at = $4,
-		    version = version + 1
-		WHERE id = $5 AND version = $6
-	`,
+			last_active_at = $2
+		WHERE id = $3
+		`
+
+	if _, err := exec.ExecContext(ctx, q,
 		newToken.Value(),
-		prevHash,
-		rotation,
 		now,
-		session.ID(),
-		session.Version(),
-	)
-	if err != nil {
+		sessionID,
+	); err != nil {
 		return nil, err
 	}
 
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if rows == 0 {
-		return nil, infrastructure.ErrConflict
-	}
-
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO session_rotations
-		    (session_id, old_token_hash, new_token_hash, rotation_id, rotated_at)
-		VALUES ($1, $2, $3, $4, $5)
-	`,
-		session.ID(),
-		oldToken.Value(),
-		newToken.Value(),
-		rotationID,
-		now,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	session.CommitVersion()
 	return session, nil
 }
 
+func (r *PostgresSessionRepository) RevokeByID(
+	ctx context.Context,
+	sessionID string,
+	now time.Time,
+) (*aggregates.SessionAggregate, error) {
 
-func (r *PostgresSessionRepository) RevokeByID(ctx context.Context, sessionID string, now time.Time) (*aggregates.SessionAggregate, error) {
+	exec := ChooseExecutor(ctx, r.db)
+
 	session, err := r.FindByID(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := session.Revoke(now, "manual revoke"); err != nil {
-		return nil, err
-	}
+	session.Revoke(now, "manual revoke")
 
-	if err := r.Save(ctx, session); err != nil {
+	const q = `
+UPDATE auth.sessions
+SET revoked_at = $1,
+    revoke_reason = $2
+WHERE id = $3
+`
+
+	if _, err := exec.ExecContext(ctx, q,
+		session.RevokedAt(),
+		session.RevokeReason(),
+		sessionID,
+	); err != nil {
 		return nil, err
 	}
 
 	return session, nil
 }
 
-func (r *PostgresSessionRepository) RevokeAllForUser(ctx context.Context, userID string, now time.Time) ([]*aggregates.SessionAggregate, error) {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (r *PostgresSessionRepository) RevokeAllForUser(
+	ctx context.Context,
+	userID string,
+	now time.Time,
+) ([]*aggregates.SessionAggregate, error) {
 
-	query := `
-		UPDATE sessions
-		SET status = 'REVOKED',
-		    revoked_at = $1,
-		    version = version + 1
-		WHERE user_id = $2 AND status = 'ACTIVE'
-		RETURNING id, user_id, role, token_hash, previous_token_hash, rotation_id,
-		          ip_address, device_id, user_agent,
-		          status, created_at, last_seen_at, expires_at, revoked_at, version
-	`
+	exec := ChooseExecutor(ctx, r.db)
 
-	rows, err := tx.QueryContext(ctx, query, now, userID)
+	const reason = "batch revoke"
+
+	const q = `
+UPDATE auth.sessions
+SET revoked_at = $1,
+    revoke_reason = $2
+WHERE user_id = $3
+  AND revoked_at IS NULL
+  AND expires_at > $1
+RETURNING
+    id,
+    user_id,
+    token_hash,
+    refresh_token_hash,
+    ip_address,
+    user_agent,
+    device_fingerprint,
+    device_name,
+    country_code,
+    city,
+    is_mfa_verified,
+    impersonated_by,
+    last_active_at,
+    expires_at,
+    revoked_at,
+    revoke_reason,
+    created_at
+`
+
+	rows, err := exec.QueryContext(ctx, q, now, reason, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	var revokedSessions []*aggregates.SessionAggregate
+
 	for rows.Next() {
-		var s models.Session
+		var m models.Session
 		if err := rows.Scan(
-			&s.ID, &s.UserID, &s.Role, &s.TokenHash, &s.PreviousTokenHash, &s.RotationID,
-			&s.IPAddress, &s.DeviceID, &s.UserAgent,
-			&s.Status, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.RevokedAt, &s.Version,
+			&m.ID,
+			&m.UserID,
+			&m.TokenHash,
+			&m.RefreshTokenHash,
+			&m.IPAddress,
+			&m.UserAgent,
+			&m.DeviceFingerprint,
+			&m.DeviceName,
+			&m.CountryCode,
+			&m.City,
+			&m.IsMFAVerified,
+			&m.ImpersonatedBy,
+			&m.LastActiveAt,
+			&m.ExpiresAt,
+			&m.RevokedAt,
+			&m.RevokeReason,
+			&m.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
 
-		agg, err := mapSessionModelToAggregate(s)
+		agg, err := mapSessionModelToAggregate(m)
 		if err != nil {
 			return nil, err
 		}
 
-		agg.RaiseEvent(events.NewSessionRevokedEvent(agg.ID(), agg.UserID(), "batch revoke"))
+		agg.RaiseEvent(events.NewSessionRevokedEvent(agg.ID(), agg.UserID(), reason))
 		revokedSessions = append(revokedSessions, agg)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return revokedSessions, nil
@@ -276,39 +330,53 @@ func (r *PostgresSessionRepository) FindActiveByKeyHash(
 	now time.Time,
 ) (*aggregates.SessionAggregate, error) {
 
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, err
-	}
+	exec := ChooseExecutor(ctx, r.db)
 
-	query := `
-		SELECT id, user_id, token_hash, previous_token_hash, rotation_id,
-		       ip_address, device_id, user_agent,
-		       status, created_at, last_seen_at, expires_at, revoked_at, version
-		FROM sessions
-		WHERE token_hash = $1
-		  AND status = 'ACTIVE'
-		  AND expires_at > $2
-	`
+	const q = `
+SELECT
+    id,
+    user_id,
+    token_hash,
+    refresh_token_hash,
+    ip_address,
+    user_agent,
+    device_fingerprint,
+    device_name,
+    country_code,
+    city,
+    is_mfa_verified,
+    impersonated_by,
+    last_active_at,
+    expires_at,
+    revoked_at,
+    revoke_reason,
+    created_at
+FROM auth.sessions
+WHERE token_hash = $1
+  AND revoked_at IS NULL
+  AND expires_at > $2
+`
 
 	var m models.Session
-	err = tx.QueryRowContext(ctx, query, tokenHash.Value(), now).Scan(
+	if err := exec.QueryRowContext(ctx, q, tokenHash.Value(), now).Scan(
 		&m.ID,
 		&m.UserID,
 		&m.TokenHash,
-		&m.PreviousTokenHash,
-		&m.RotationID,
+		&m.RefreshTokenHash,
 		&m.IPAddress,
-		&m.DeviceID,
 		&m.UserAgent,
-		&m.Status,
-		&m.CreatedAt,
-		&m.LastSeenAt,
+		&m.DeviceFingerprint,
+		&m.DeviceName,
+		&m.CountryCode,
+		&m.City,
+		&m.IsMFAVerified,
+		&m.ImpersonatedBy,
+		&m.LastActiveAt,
 		&m.ExpiresAt,
 		&m.RevokedAt,
-		&m.Version,
-	)
-	if err != nil {
+		&m.RevokeReason,
+		&m.CreatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, infrastructure.ErrSessionNotFound
 		}
@@ -318,28 +386,58 @@ func (r *PostgresSessionRepository) FindActiveByKeyHash(
 	return mapSessionModelToAggregate(m)
 }
 
-func (r *PostgresSessionRepository) FindByTokenHash(ctx context.Context, tokenHash valueobjects.SessionTokenHash, now time.Time) (*aggregates.SessionAggregate, error) {
-	tx, err := GetTx(ctx)
-	if err != nil {
-		return nil, err
-	}
+func (r *PostgresSessionRepository) FindByTokenHash(
+	ctx context.Context,
+	tokenHash valueobjects.SessionTokenHash,
+	now time.Time,
+) (*aggregates.SessionAggregate, error) {
 
-	query := `
-		SELECT id, user_id, role, token_hash, previous_token_hash, rotation_id,
-		       ip_address, device_id, user_agent,
-		       status, created_at, last_seen_at, expires_at, revoked_at, version
-		FROM sessions
-		WHERE (token_hash = $1 OR previous_token_hash = $1)
-		  AND expires_at > $2
-	`
+	exec := ChooseExecutor(ctx, r.db)
+
+	const q = `
+SELECT
+    id,
+    user_id,
+    token_hash,
+    refresh_token_hash,
+    ip_address,
+    user_agent,
+    device_fingerprint,
+    device_name,
+    country_code,
+    city,
+    is_mfa_verified,
+    impersonated_by,
+    last_active_at,
+    expires_at,
+    revoked_at,
+    revoke_reason,
+    created_at
+FROM auth.sessions
+WHERE token_hash = $1
+  AND expires_at > $2
+`
 
 	var m models.Session
-	err = tx.QueryRowContext(ctx, query, tokenHash.Value(), now).Scan(
-		&m.ID, &m.UserID, &m.Role, &m.TokenHash, &m.PreviousTokenHash, &m.RotationID,
-		&m.IPAddress, &m.DeviceID, &m.UserAgent,
-		&m.Status, &m.CreatedAt, &m.LastSeenAt, &m.ExpiresAt, &m.RevokedAt, &m.Version,
-	)
-	if err != nil {
+	if err := exec.QueryRowContext(ctx, q, tokenHash.Value(), now).Scan(
+		&m.ID,
+		&m.UserID,
+		&m.TokenHash,
+		&m.RefreshTokenHash,
+		&m.IPAddress,
+		&m.UserAgent,
+		&m.DeviceFingerprint,
+		&m.DeviceName,
+		&m.CountryCode,
+		&m.City,
+		&m.IsMFAVerified,
+		&m.ImpersonatedBy,
+		&m.LastActiveAt,
+		&m.ExpiresAt,
+		&m.RevokedAt,
+		&m.RevokeReason,
+		&m.CreatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, infrastructure.ErrSessionNotFound
 		}
@@ -350,43 +448,69 @@ func (r *PostgresSessionRepository) FindByTokenHash(ctx context.Context, tokenHa
 }
 
 func mapSessionModelToAggregate(m models.Session) (*aggregates.SessionAggregate, error) {
-	roleVO, err := valueobjects.NewRole(m.Role)
-	if err != nil {
-		return nil, err
+	var refreshHash *string
+	if m.RefreshTokenHash != nil {
+		refreshHash = m.RefreshTokenHash
 	}
 
-	var prevHashVO *valueobjects.SessionTokenHash
-	if m.PreviousTokenHash != nil {
-		h, err := valueobjects.NewSessionTokenHash(*m.PreviousTokenHash)
-		if err != nil {
-			return nil, err
-		}
-		prevHashVO = &h
+	ip := ""
+	if m.IPAddress != nil {
+		ip = *m.IPAddress
+	}
+
+	ua := ""
+	if m.UserAgent != nil {
+		ua = *m.UserAgent
+	}
+
+	fp := ""
+	if m.DeviceFingerprint != nil {
+		fp = *m.DeviceFingerprint
+	}
+
+	deviceName := ""
+	if m.DeviceName != nil {
+		deviceName = *m.DeviceName
+	}
+
+	country := ""
+	if m.CountryCode != nil {
+		country = *m.CountryCode
+	}
+
+	city := ""
+	if m.City != nil {
+		city = *m.City
+	}
+
+	var revokedAt *time.Time
+	if m.RevokedAt != nil {
+		revokedAt = m.RevokedAt
+	}
+
+	var revokeReason *string
+	if m.RevokeReason != nil {
+		revokeReason = m.RevokeReason
 	}
 
 	return aggregates.RehydrateSession(
 		m.ID,
 		m.UserID,
-		roleVO, 
 		m.TokenHash,
-		prevHashVOString(prevHashVO),
-		m.RotationID,
-		m.IPAddress,
-		m.UserAgent,
-		m.DeviceID,
-		m.Status,
+		refreshHash,
+		ip,
+		ua,
+		fp,
+		deviceName,
+		country,
+		city,
+		m.IsMFAVerified,
+		m.ImpersonatedBy,
 		m.CreatedAt,
-		m.LastSeenAt,
+		m.LastActiveAt,
 		m.ExpiresAt,
-		m.RevokedAt,
-		m.Version,
+		revokedAt,
+		revokeReason,
+		0,
 	)
-}
-
-func prevHashVOString(vo *valueobjects.SessionTokenHash) *string {
-	if vo == nil {
-		return nil
-	}
-	val := vo.Value()
-	return &val
 }

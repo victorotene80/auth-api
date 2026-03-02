@@ -4,111 +4,103 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/victorotene80/authentication_api/internal/domain/aggregates"
-	"github.com/victorotene80/authentication_api/internal/domain/valueobjects"
-	"github.com/victorotene80/authentication_api/internal/infrastructure"
+	infraErrors "github.com/victorotene80/authentication_api/internal/infrastructure"
+	appContracts "github.com/victorotene80/authentication_api/internal/application/contracts"
 )
 
-type RedisSessionCache struct {
-	client *redis.Client
-	prefix string
+type RedisCache[K comparable, V any] struct {
+	client     *redis.Client
+	prefix     string
+	defaultTTL time.Duration
 }
 
-func NewRedisSessionCache(client *redis.Client) *RedisSessionCache {
-	return &RedisSessionCache{
-		client: client,
-		prefix: "session:",
+var _ appContracts.Cache[string, struct{}] = (*RedisCache[string, struct{}])(nil)
+
+func NewRedisCache[K comparable, V any](
+	client *redis.Client,
+	prefix string,
+	defaultTTL time.Duration,
+) *RedisCache[K, V] {
+	if prefix == "" {
+		prefix = "cache:"
+	}
+	return &RedisCache[K, V]{
+		client:     client,
+		prefix:     prefix,
+		defaultTTL: defaultTTL,
 	}
 }
 
-func (r *RedisSessionCache) key(tokenHash string) string {
-	return r.prefix + tokenHash
+func (c *RedisCache[K, V]) key(k K) string {
+	return c.prefix + fmt.Sprint(k)
 }
 
-func (r *RedisSessionCache) Set(ctx context.Context, session *aggregates.SessionAggregate) error {
-	cached := mapAggregateToCached(session)
 
-	data, err := json.Marshal(cached)
+func (c *RedisCache[K, V]) Set(
+	ctx context.Context,
+	key K,
+	value *V,
+) error {
+	redisKey := c.key(key)
+
+	if value == nil {
+		return c.client.Del(ctx, redisKey).Err()
+	}
+
+	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
 
-	ttl := time.Until(session.ExpiresAt())
-	if ttl <= 0 {
-		_ = r.Delete(ctx, session.TokenHash().Value())
-		return infrastructure.ErrSessionExpired
-	}
-
-	return r.client.Set(ctx, r.key(cached.TokenHash), data, ttl).Err()
+	return c.client.Set(ctx, redisKey, data, c.defaultTTL).Err()
 }
 
-func (r *RedisSessionCache) Get(ctx context.Context, tokenHash string) (*aggregates.SessionAggregate, error) {
-	data, err := r.client.Get(ctx, r.key(tokenHash)).Bytes()
+func (c *RedisCache[K, V]) Get(
+	ctx context.Context,
+	key K,
+) (*V, error) {
+	redisKey := c.key(key)
+
+	data, err := c.client.Get(ctx, redisKey).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			return nil, infrastructure.ErrSessionNotFound
+			return nil, infraErrors.ErrCacheMiss
 		}
 		return nil, err
 	}
 
-	var cached CachedSession
-	if err := json.Unmarshal(data, &cached); err != nil {
+	var v V
+	if err := json.Unmarshal(data, &v); err != nil {
 		return nil, err
 	}
 
-	return mapCachedToAggregate(cached)
+	return &v, nil
 }
 
-func (r *RedisSessionCache) Delete(ctx context.Context, tokenHash string) error {
-	return r.client.Del(ctx, r.key(tokenHash)).Err()
+func (c *RedisCache[K, V]) Delete(
+	ctx context.Context,
+	key K,
+) error {
+	redisKey := c.key(key)
+	return c.client.Del(ctx, redisKey).Err()
 }
 
-func toStringPtr(vo *valueobjects.SessionTokenHash) *string {
-	if vo == nil {
-		return nil
+func (c *RedisCache[K, V]) RefreshTTL(
+	ctx context.Context,
+	key K,
+) error {
+	redisKey := c.key(key)
+
+	ok, err := c.client.Expire(ctx, redisKey, c.defaultTTL).Result()
+	if err != nil {
+		return err
 	}
-	val := vo.Value()
-	return &val
-}
-
-func mapAggregateToCached(s *aggregates.SessionAggregate) CachedSession {
-	return CachedSession{
-		ID:                s.ID(),
-		UserID:            s.UserID(),
-		TokenHash:         s.TokenHash().Value(),
-		PreviousTokenHash: toStringPtr(s.PreviousTokenHash()),
-		RotationID:        s.RotationID(),
-		IPAddress:         s.IPAddress(),
-		DeviceID:          s.DeviceID(),
-		UserAgent:         s.UserAgent(),
-		Status:            string(s.Status()),
-		CreatedAt:         s.CreatedAt(),
-		LastSeenAt:        s.LastSeenAt(),
-		ExpiresAt:         s.ExpiresAt(),
-		RevokedAt:         s.RevokedAt(),
-		Version:           s.Version(),
+	if !ok {
+		return infraErrors.ErrCacheMiss
 	}
-}
-
-func mapCachedToAggregate(c CachedSession) (*aggregates.SessionAggregate, error) {
-	return aggregates.RehydrateSession(
-		c.ID,
-		c.UserID,
-		valueobjects.Role(c.Role),
-		c.TokenHash,
-		c.PreviousTokenHash,
-		c.RotationID,
-		c.IPAddress,
-		c.UserAgent,
-		c.DeviceID,
-		c.Status,
-		c.CreatedAt,
-		c.LastSeenAt,
-		c.ExpiresAt,
-		c.RevokedAt,
-		c.Version,
-	)
+	return nil
 }

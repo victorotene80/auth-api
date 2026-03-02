@@ -9,4 +9,5 @@ var (
 	ErrInvalidResult   = errors.New("invalid result type")
 	ErrSessionInvalid  = errors.New("session invalid or expired")
 	ErrUnauthenticated = errors.New("unauthenticated")
+	ErrCacheMiss       = errors.New("cache miss")
 )

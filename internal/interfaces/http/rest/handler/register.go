@@ -35,12 +35,25 @@ func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 
 	if err := decoder.Decode(req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		response.Error(
+			w,
+			http.StatusBadRequest,
+			"INVALID_REQUEST_BODY",
+			"Invalid JSON payload",
+			nil,
+		)
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		// You can later parse this into []response.ValidationError
+		response.Error(
+			w,
+			http.StatusBadRequest,
+			"VALIDATION_ERROR",
+			"One or more fields are invalid",
+			err.Error(), // or a structured list
+		)
 		return
 	}
 
@@ -67,10 +80,17 @@ func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 
 	result, err := messaging.Execute[
 		command.CreateUserCommand,
-		dto.RegisterUserResponseDTO,
+		*dto.RegisterUserResponseDTO, // pointer result to match your handler
 	](h.commandBus, r.Context(), cmd)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+		// Later you can map domain errors to specific codes/status
+		response.Error(
+			w,
+			http.StatusUnprocessableEntity,
+			"USER_CREATION_FAILED",
+			"Could not create user",
+			err.Error(),
+		)
 		return
 	}
 
@@ -85,7 +105,11 @@ func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		RefreshTokenExpiresAt: result.RefreshTokenExpiresAt,
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(resp)
+	response.Success(
+		w,
+		http.StatusCreated,
+		"USER_CREATED",
+		"User registered successfully",
+		&resp,
+	)
 }

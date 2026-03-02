@@ -3,7 +3,6 @@ package persistence
 import (
 	"context"
 	"database/sql"
-	"errors"
 )
 
 type txKey struct{}
@@ -46,7 +45,8 @@ func (u *SqlUnitOfWork) WithinTransaction(ctx context.Context, fn func(exec cont
 func GetTx(ctx context.Context) (*sql.Tx, error) {
 	tx, ok := ctx.Value(txKey{}).(*sql.Tx)
 	if !ok || tx == nil {
-		return nil, errors.New("no transaction found in context")
+		// No transaction in this context, but that's not an error.
+		return nil, nil
 	}
 	return tx, nil
 }
