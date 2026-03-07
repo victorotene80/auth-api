@@ -3,17 +3,51 @@ package config
 import "time"
 
 type Config struct {
-	Security SecurityConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	GeoIP    GeoIPConfig
+	Security  SecurityConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	GeoIP     GeoIPConfig
+	Messaging MessagingConfig
+}
+
+type MessagingConfig struct {
+	Kafka    KafkaConfig
+	RabbitMQ RabbitMQConfig
+	Relay    RelayConfig
+}
+
+type KafkaConfig struct {
+	Brokers         []string
+	TopicPrefix     string
+	ConsumerGroupID string
+	WriteTimeout    time.Duration
+}
+
+type RabbitMQConfig struct {
+	DSN            string
+	Exchange       string
+	RetryExchange  string
+	DLExchange     string
+	MaxRetries     int
+	RetryDelay     time.Duration
+	PublishTimeout time.Duration
+}
+
+type RelayConfig struct {
+	PollInterval        time.Duration
+	BatchSize           int
+	ReclaimAfter        time.Duration
+	DefaultEventBroker  string
+	DefaultTaskBroker   string
+	EventRoutes         map[string]string
+	TaskRoutes          map[string]string
 }
 
 type SecurityConfig struct {
 	SessionPepper   string
-	JWTSecret       string        // secret for signing JWT
-	AccessTokenTTL  time.Duration // e.g., 15 * time.Minute
-	RefreshTokenTTL time.Duration // e.g., 7 * 24 * time.Hour
+	JWTSecret       string
+	AccessTokenTTL  time.Duration
+	RefreshTokenTTL time.Duration
 }
 
 type DatabaseConfig struct {

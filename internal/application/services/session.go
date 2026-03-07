@@ -24,7 +24,7 @@ type sessionService struct {
 	hasher         *utils.SessionKeyHasher
 	policy         policy.SessionPolicy
 	clock          func() time.Time
-	eventPublisher appContracts.EventPublisher
+	eventPublisher appContracts.MessagePublisher
 	geoIP          appContracts.GeoIPService
 	sessionCache   appContracts.Cache[string, cache.CachedSession]
 	auditLogger    appContracts.AuditLogger
@@ -37,7 +37,7 @@ func NewSessionService(
 	hasher *utils.SessionKeyHasher,
 	policy policy.SessionPolicy,
 	clock func() time.Time,
-	eventPublisher appContracts.EventPublisher,
+	eventPublisher appContracts.MessagePublisher,
 	geoIP appContracts.GeoIPService,
 	sessionCache appContracts.Cache[string, cache.CachedSession],
 	auditLogger appContracts.AuditLogger,
@@ -199,21 +199,21 @@ func (s *sessionService) Create(
 		}
 
 		rec := dto.AuditRecord{
-			Action: dto.AuditActionLoginSuccess, 
-			UserID: &userIDCopy,
+			Action:    dto.AuditActionLoginSuccess,
+			UserID:    &userIDCopy,
 			ActorID:   &userIDCopy,
 			SessionID: &sessionIDCopy,
 
-			IPAddress:   &ipCopy,
-			UserAgent:   &uaCopy,
-			CountryCode: &countryCopy,
-			TargetResource: nil, 
+			IPAddress:      &ipCopy,
+			UserAgent:      &uaCopy,
+			CountryCode:    &countryCopy,
+			TargetResource: nil,
 			TargetID:       &sessionIDCopy,
-			Metadata: meta,
-			Success:  true,
+			Metadata:       meta,
+			Success:        true,
 		}
 
-		_ = s.auditLogger.Log(ctx, rec) 
+		_ = s.auditLogger.Log(ctx, rec)
 	}
 
 	return result, nil

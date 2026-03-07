@@ -1,8 +1,12 @@
 package messaging
 
 type Context struct {
-	Aggregate string
-	Action    string
+	Kind          Kind
+	Name          string
+	AggregateType string
+	Action        string
+	CorrelationID string
+	CausationID   string
 
 	IPAddress string
 	UserAgent string
@@ -11,10 +15,18 @@ type Context struct {
 
 func (c Context) ToMetadata() map[string]string {
 	meta := map[string]string{
-		"aggregate": c.Aggregate,
-		"action":    c.Action,
+		"message_kind":   string(c.Kind),
+		"message_name":   c.Name,
+		"aggregate_type": c.AggregateType,
+		"action":         c.Action,
 	}
 
+	if c.CorrelationID != "" {
+		meta["correlation_id"] = c.CorrelationID
+	}
+	if c.CausationID != "" {
+		meta["causation_id"] = c.CausationID
+	}
 	if c.IPAddress != "" {
 		meta["ip_address"] = c.IPAddress
 	}

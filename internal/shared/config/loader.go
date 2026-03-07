@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,7 +19,7 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	redis, err := loadRedis()
+	redisCfg, err := loadRedis()
 	if err != nil {
 		return nil, err
 	}
@@ -28,11 +29,14 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
+	messaging := loadMessaging()
+
 	return &Config{
-		Security: security,
-		Database: database,
-		Redis:    redis,
-		GeoIP:    geo,
+		Security:  security,
+		Database:  database,
+		Redis:     redisCfg,
+		GeoIP:     geo,
+		Messaging: messaging,
 	}, nil
 }
 
@@ -47,14 +51,11 @@ func loadSecurity() (SecurityConfig, error) {
 		return SecurityConfig{}, err
 	}
 
-	accessTTL := getDurationOrDefault("ACCESS_TOKEN_TTL", 15*time.Minute)
-	refreshTTL := getDurationOrDefault("REFRESH_TOKEN_TTL", 7*24*time.Hour)
-
 	return SecurityConfig{
 		SessionPepper:   pepper,
 		JWTSecret:       jwtSecret,
-		AccessTokenTTL:  accessTTL,
-		RefreshTokenTTL: refreshTTL,
+		AccessTokenTTL:  getDurationOrDefault("ACCESS_TOKEN_TTL", 15*time.Minute),
+		RefreshTokenTTL: getDurationOrDefault("REFRESH_TOKEN_TTL", 7*24*time.Hour),
 	}, nil
 }
 
@@ -69,16 +70,12 @@ func loadRedis() (RedisConfig, error) {
 		return RedisConfig{}, err
 	}
 
-	password := getStringOrDefault("REDIS_PASSWORD", "")
-	db := getIntOrDefault("REDIS_DB", 0)
-	ttl := getDurationOrDefault("REDIS_TTL", 15*time.Minute)
-
 	return RedisConfig{
 		Host:     host,
 		Port:     port,
-		Password: password,
-		DB:       db,
-		TTL:      ttl,
+		Password: getStringOrDefault("REDIS_PASSWORD", ""),
+		DB:       getIntOrDefault("REDIS_DB", 0),
+		TTL:      getDurationOrDefault("REDIS_TTL", 15*time.Minute),
 	}, nil
 }
 
@@ -117,6 +114,7 @@ func loadDatabase() (DatabaseConfig, error) {
 		SSLMode:      getStringOrDefault("DB_SSLMODE", "disable"),
 		MaxOpenConns: getIntOrDefault("DB_MAX_OPEN", 10),
 		MaxIdleConns: getIntOrDefault("DB_MAX_IDLE", 5),
+		MaxLifetime:  getIntOrDefault("DB_MAX_LIFETIME", 300),
 	}, nil
 }
 
@@ -126,9 +124,58 @@ func loadGeoIP() (GeoIPConfig, error) {
 		return GeoIPConfig{}, err
 	}
 
-	return GeoIPConfig{
-		DBPath: path,
-	}, nil
+	return GeoIPConfig{DBPath: path}, nil
+}
+
+func loadMessaging() MessagingConfig {
+	return MessagingConfig{
+		Kafka: KafkaConfig{
+			Brokers:         splitCSV(getStringOrDefault("KAFKA_BROKERS", "localhost:9092")),
+			TopicPrefix:     getStringOrDefault("KAFKA_TOPIC_PREFIX", "auth."),
+			ConsumerGroupID: getStringOrDefault("KAFKA_CONSUMER_GROUP_ID", "auth-service"),
+			WriteTimeout:    getDurationOrDefault("KAFKA_WRITE_TIMEOUT", 10*time.Second),
+		},
+		RabbitMQ: RabbitMQConfig{
+			DSN:            getStringOrDefault("RABBITMQ_DSN", "amqp://guest:guest@localhost:5672/"),
+			Exchange:       getStringOrDefault("RABBITMQ_EXCHANGE", "auth.tasks"),
+			RetryExchange:  getStringOrDefault("RABBITMQ_RETRY_EXCHANGE", "auth.tasks.retry"),
+			DLExchange:     getStringOrDefault("RABBITMQ_DL_EXCHANGE", "auth.tasks.dlx"),
+			MaxRetries:     getIntOrDefault("RABBITMQ_MAX_RETRIES", 3),
+			RetryDelay:     getDurationOrDefault("RABBITMQ_RETRY_DELAY", 15*time.Second),
+			PublishTimeout: getDurationOrDefault("RABBITMQ_PUBLISH_TIMEOUT", 5*time.Second),
+		},
+		Relay: RelayConfig{
+			PollInterval:       getDurationOrDefault("RELAY_POLL_INTERVAL", 1*time.Second),
+			BatchSize:          getIntOrDefault("RELAY_BATCH_SIZE", 50),
+			ReclaimAfter:       getDurationOrDefault("RELAY_RECLAIM_AFTER", 2*time.Minute),
+			DefaultEventBroker: "event",
+			DefaultTaskBroker:  "task",
+			EventRoutes: map[string]string{
+				"auth.user.created.v1":     "event",
+				"auth.user.locked.v1":      "event",
+				"auth.session.created.v1":  "event",
+				"auth.session.revoked.v1":  "event",
+				"auth.password.changed.v1": "event",
+			},
+			TaskRoutes: map[string]string{
+				"auth.send-welcome-email.v1":  "task",
+				"auth.send-verification.v1":   "task",
+				"auth.sync-analytics-user.v1": "task",
+			},
+		},
+	}
+}
+
+func splitCSV(v string) []string {
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func getDurationOrDefault(key string, def time.Duration) time.Duration {

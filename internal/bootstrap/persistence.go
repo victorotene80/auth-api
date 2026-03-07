@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	outboxContracts "github.com/victorotene80/authentication_api/internal/infrastructure/messaging/outbox"
 	"github.com/victorotene80/authentication_api/internal/application/contracts"
 	"github.com/victorotene80/authentication_api/internal/domain/repository"
 	"github.com/victorotene80/authentication_api/internal/infrastructure/persistence"
@@ -15,7 +16,7 @@ type Persistence struct {
 	DB          *sql.DB
 	UserRepo    repository.UserRepository
 	SessionRepo repository.SessionRepository
-	OutboxRepo  contracts.OutboxRepository
+	OutboxRepo  outboxContracts.OutboxRepository
 	RoleRepo    repository.RoleRepository
 	UoW         contracts.UnitOfWork
 }
@@ -41,5 +42,3 @@ func initializePersistence(cfg *config.Config, logger *zap.Logger) (*Persistence
 		UoW:         persistence.NewSqlUnitOfWork(db),
 	}, nil
 }
-
-//pa55w0rd5

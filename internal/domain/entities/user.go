@@ -24,6 +24,7 @@ type User struct {
 	lockedUntil           *time.Time
 	lastLoginAt           *time.Time
 	lastLoginIP           string
+	phone                 valueobjects.PhoneNumber
 	lastActiveAt          *time.Time
 	createdAt             time.Time
 	updatedAt             time.Time
@@ -35,6 +36,7 @@ func NewUserForRegistration(
 	email valueobjects.Email,
 	password valueobjects.Password,
 	firstName, lastName, middleName, lastLoginIP string,
+	phone valueobjects.PhoneNumber,
 	now time.Time,
 ) *User {
 	return &User{
@@ -44,7 +46,7 @@ func NewUserForRegistration(
 		firstName:             firstName,
 		lastName:              lastName,
 		middleName:            middleName,
-		status:                valueobjects.UserStatusPendingVerification, // or Active if you prefer
+		status:                valueobjects.UserStatusPendingVerification,
 		emailVerified:         false,
 		emailVerifiedAt:       nil,
 		passwordChangedAt:     nil,
@@ -54,13 +56,13 @@ func NewUserForRegistration(
 		lockedUntil:           nil,
 		lastLoginAt:           nil,
 		lastLoginIP:           lastLoginIP,
+		phone:                 phone,
 		lastActiveAt:          nil,
 		createdAt:             now,
 		updatedAt:             now,
 		deletedAt:             nil,
 	}
 }
-
 
 func NewUserFromDB(
 	id string,
@@ -72,6 +74,7 @@ func NewUserFromDB(
 	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
 	lastLoginAt, lastActiveAt, deletedAt *time.Time,
 	lastLoginIP string,
+	phone valueobjects.PhoneNumber,
 	failedAttempts int,
 	createdAt, updatedAt time.Time,
 ) *User {
@@ -92,6 +95,7 @@ func NewUserFromDB(
 		lockedUntil:           lockedUntil,
 		lastLoginAt:           lastLoginAt,
 		lastLoginIP:           lastLoginIP,
+		phone:                 phone,
 		lastActiveAt:          lastActiveAt,
 		createdAt:             createdAt,
 		updatedAt:             updatedAt,
@@ -187,24 +191,25 @@ func (u *User) UnlockIfExpired(now time.Time) {
 		if u.status == valueobjects.UserStatusLocked {
 			u.status = valueobjects.UserStatusActive
 		}
-		u.failedLoginAttempts = 0 // optional, but recommended after lock expires
+		u.failedLoginAttempts = 0
 	}
 }
 
-func (u *User) ID() string                      { return u.id }
-func (u *User) Email() valueobjects.Email       { return u.email }
-func (u *User) Password() valueobjects.Password { return u.password }
-func (u *User) Status() valueobjects.UserStatus { return u.status }
-func (u *User) FirstName() string               { return u.firstName }
-func (u *User) LastName() string                { return u.lastName }
-func (u *User) MiddleName() string              { return u.middleName }
-func (u *User) EmailVerified() bool             { return u.emailVerified }
-func (u *User) EmailVerifiedAt() *time.Time     { return u.emailVerifiedAt }
-func (u *User) FailedLoginAttempts() int        { return u.failedLoginAttempts }
-func (u *User) LockedUntil() *time.Time         { return u.lockedUntil }
-func (u *User) LastLoginAt() *time.Time         { return u.lastLoginAt }
-func (u *User) LastLoginIP() string             { return u.lastLoginIP }
-func (u *User) LastActiveAt() *time.Time        { return u.lastActiveAt }
-func (u *User) CreatedAt() time.Time            { return u.createdAt }
-func (u *User) UpdatedAt() time.Time            { return u.updatedAt }
-func (u *User) DeletedAt() *time.Time           { return u.deletedAt }
+func (u *User) ID() string                           { return u.id }
+func (u *User) Email() valueobjects.Email            { return u.email }
+func (u *User) Password() valueobjects.Password      { return u.password }
+func (u *User) Status() valueobjects.UserStatus      { return u.status }
+func (u *User) FirstName() string                    { return u.firstName }
+func (u *User) LastName() string                     { return u.lastName }
+func (u *User) MiddleName() string                   { return u.middleName }
+func (u *User) EmailVerified() bool                  { return u.emailVerified }
+func (u *User) EmailVerifiedAt() *time.Time          { return u.emailVerifiedAt }
+func (u *User) FailedLoginAttempts() int             { return u.failedLoginAttempts }
+func (u *User) LockedUntil() *time.Time              { return u.lockedUntil }
+func (u *User) LastLoginAt() *time.Time              { return u.lastLoginAt }
+func (u *User) LastLoginIP() string                  { return u.lastLoginIP }
+func (u *User) LastActiveAt() *time.Time             { return u.lastActiveAt }
+func (u *User) CreatedAt() time.Time                 { return u.createdAt }
+func (u *User) UpdatedAt() time.Time                 { return u.updatedAt }
+func (u *User) DeletedAt() *time.Time                { return u.deletedAt }
+func (u *User) Phone() valueobjects.PhoneNumber      { return u.phone }

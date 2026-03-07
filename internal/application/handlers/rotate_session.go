@@ -21,7 +21,7 @@ package handlers
 type RotateSessionHandler struct {
 	uow       appContracts.UnitOfWork
 	repo      repository.SessionRepository
-	publisher appContracts.EventPublisher
+	publisher appContracts.MessagePublisher
 	hasher    *utils.SessionKeyHasher
 	clock     func() time.Time
 	policy    policy.SessionPolicy
@@ -31,7 +31,7 @@ type RotateSessionHandler struct {
 func NewRotateSessionHandler(
 	uow appContracts.UnitOfWork,
 	repo repository.SessionRepository,
-	publisher appContracts.EventPublisher,
+	publisher appContracts.MessagePublisher,
 	hasher *utils.SessionKeyHasher,
 	policy policy.SessionPolicy,
 	tokenGen contracts.TokenGenerator,
@@ -100,7 +100,7 @@ func (h *RotateSessionHandler) Handle(
 		}
 
 		rotationID := uuid.NewString()
-		
+
 		if err := session.RotateKey(newTokenHash, rotationID, now); err != nil {
 			return err
 		}

@@ -12,10 +12,16 @@ type baseDomainEvent struct {
 	version     int
 }
 
-func (e baseDomainEvent) EventID() string         { return e.id }
-func (e baseDomainEvent) EventName() string       { return e.name }
-func (e baseDomainEvent) AggregateID() string     { return e.aggregateID }
-func (e baseDomainEvent) OccurredAt() time.Time   { return e.occurredAt }
-func (e baseDomainEvent) Payload() any            { return e.payload }
-func (e baseDomainEvent) Metadata() map[string]string { return e.meta }
-func (e baseDomainEvent) Version() int            { return e.version }
+func (e baseDomainEvent) EventID() string       { return e.id }
+func (e baseDomainEvent) EventName() string     { return e.name }
+func (e baseDomainEvent) AggregateID() string   { return e.aggregateID }
+func (e baseDomainEvent) OccurredAt() time.Time { return e.occurredAt }
+func (e baseDomainEvent) Payload() any          { return e.payload }
+func (e baseDomainEvent) Metadata() map[string]string {
+	out := make(map[string]string, len(e.meta))
+	for k, v := range e.meta {
+		out[k] = v
+	}
+	return out
+}
+func (e baseDomainEvent) Version() int { return e.version }

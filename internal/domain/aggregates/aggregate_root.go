@@ -34,6 +34,13 @@ func (a *AggregateRoot) PullEvents() []events.DomainEvent {
 	return eventsCopy
 }
 
+/*func (a *AggregateRoot) PullAndClearEvents() []events.DomainEvent {
+	eventsCopy := make([]events.DomainEvent, len(a.uncommittedEvents))
+	copy(eventsCopy, a.uncommittedEvents)
+	a.ClearEvents()
+	return eventsCopy
+}*/
+
 func (a *AggregateRoot) ClearEvents() {
 	a.uncommittedEvents = a.uncommittedEvents[:0]
 }

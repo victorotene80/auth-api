@@ -27,7 +27,7 @@ import (
 
 func initializeCommands(
 	p *Persistence,
-	eventPublisher appContracts.EventPublisher,
+	eventPublisher appContracts.MessagePublisher,
 	cfg *config.Config,
 	redisClient *redis.Client,
 	logger *zap.Logger,
@@ -60,7 +60,7 @@ func initializeCommands(
 	passwordService := domainServices.NewPasswordService(passwordPolicy)
 	roleRepo := p.RoleRepo
 
-		lockPolicy := policy.DefaultAccountLockPolicy()
+	lockPolicy := policy.DefaultAccountLockPolicy()
 	lockService := domainServices.NewAccountLockService(lockPolicy)
 
 	geoIPService, err := infraServices.NewMaxMindGeoIPService(cfg.GeoIP.DBPath)

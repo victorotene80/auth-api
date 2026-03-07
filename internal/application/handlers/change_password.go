@@ -20,7 +20,7 @@ type ChangePasswordHandler struct {
 	userRepo       repository.UserRepository
 	passwordHasher contracts.PasswordHasher
 	passwordSvc    services.PasswordService
-	publisher      appContracts.EventPublisher
+	publisher      appContracts.MessagePublisher
 	clock          func() time.Time
 }
 
@@ -29,7 +29,7 @@ func NewChangePasswordHandler(
 	userRepo repository.UserRepository,
 	passwordHasher contracts.PasswordHasher,
 	passwordSvc services.PasswordService,
-	publisher appContracts.EventPublisher,
+	publisher appContracts.MessagePublisher,
 	clock func() time.Time,
 ) *ChangePasswordHandler {
 	return &ChangePasswordHandler{

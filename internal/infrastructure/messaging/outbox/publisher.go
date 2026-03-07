@@ -2,43 +2,41 @@ package outbox
 
 import (
 	"context"
+	"fmt"
 
-	"github.com/victorotene80/authentication_api/internal/application/contracts"
-	"github.com/victorotene80/authentication_api/internal/application/messaging"
+	appContracts "github.com/victorotene80/authentication_api/internal/application/contracts"
+	appmsg "github.com/victorotene80/authentication_api/internal/application/messaging"
 	"github.com/victorotene80/authentication_api/internal/domain/events"
 )
 
-var _ contracts.EventPublisher = (*Publisher)(nil) // 👈 compile-time guarantee
+var _ appContracts.MessagePublisher = (*Publisher)(nil)
 
 type Publisher struct {
-	repo       OutboxRepository
-	serializer JSONSerializer
+	repo OutboxRepository
 }
 
 func NewPublisher(repo OutboxRepository) *Publisher {
-	return &Publisher{
-		repo:       repo,
-		serializer: JSONSerializer{},
-	}
+	return &Publisher{repo: repo}
 }
 
 func (p *Publisher) Publish(
 	ctx context.Context,
-	messages []events.DomainEvent,
-	metadata map[string]string,
+	domainEvents []events.DomainEvent,
+	meta map[string]string,
 ) error {
-
-	for _, m := range messages {
-
-		msg, err := messaging.ToEnvelope(m, metadata)
+	for _, evt := range domainEvents {
+		env, err := appmsg.ToEnvelope(evt, meta)
 		if err != nil {
-			return err
+			return fmt.Errorf("outbox publisher: to envelope: %w", err)
 		}
 
-		if err := p.repo.Add(ctx, msg); err != nil {
-			return err
+		if err := p.repo.Add(ctx, env); err != nil {
+			return fmt.Errorf("outbox publisher: insert envelope: %w", err)
 		}
 	}
-
 	return nil
+}
+
+func (p *Publisher) PublishEnvelope(ctx context.Context, envelope appmsg.Envelope) error {
+	return p.repo.Add(ctx, envelope)
 }

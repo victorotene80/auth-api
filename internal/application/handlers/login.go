@@ -22,7 +22,7 @@ type LoginHandler struct {
 	passwordHasher contracts.PasswordHasher
 	sessionService appContracts.SessionService
 	lockService    *services.AccountLockService
-	eventPublisher appContracts.EventPublisher
+	eventPublisher appContracts.MessagePublisher
 	clock          func() time.Time
 }
 
@@ -32,7 +32,7 @@ func NewLoginHandler(
 	passwordHasher contracts.PasswordHasher,
 	sessionService appContracts.SessionService,
 	lockService *services.AccountLockService,
-	eventPublisher appContracts.EventPublisher,
+	eventPublisher appContracts.MessagePublisher,
 	clock func() time.Time,
 ) *LoginHandler {
 	if clock == nil {
@@ -67,7 +67,6 @@ func (h *LoginHandler) Handle(
 		lastLogin *time.Time
 	)
 
-
 	if err := h.uow.WithinTransaction(ctx, func(txCtx context.Context) error {
 		agg, err := h.userRepo.FindByEmail(txCtx, email)
 		if err != nil {
@@ -98,12 +97,22 @@ func (h *LoginHandler) Handle(
 			return err
 		}
 
-		meta := messaging.Context{
+		/*meta := messaging.Context{
 			Aggregate: "user",
 			Action:    "login",
 			IPAddress: cmd.IPAddress,
 			UserAgent: cmd.UserAgent,
 			DeviceID:  cmd.DeviceID,
+		}*/
+
+		meta := messaging.Context{
+			Kind:          messaging.KindIntegrationEvent,
+			Name:          "auth.user.login-recorded.v1",
+			AggregateType: "user",
+			Action:        "login",
+			IPAddress:     cmd.IPAddress,
+			UserAgent:     cmd.UserAgent,
+			DeviceID:      cmd.DeviceID,
 		}
 
 		if err := h.eventPublisher.Publish(
@@ -135,9 +144,9 @@ func (h *LoginHandler) Handle(
 
 	result := &dto.LoginResultDTO{
 		Status:      "SUCCESS",
-		MFARequired: false,      // wire MFA later if you want
-		LastLogin:   lastLogin,  // may be nil if first login
-		ChallengeID: nil,        // for MFA
+		MFARequired: false,     // wire MFA later if you want
+		LastLogin:   lastLogin, // may be nil if first login
+		ChallengeID: nil,       // for MFA
 		Tokens: contracts.TokenPair{
 			AccessToken: contracts.Token{
 				Value:     sessionResult.AccessToken.Value,

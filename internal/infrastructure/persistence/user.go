@@ -58,7 +58,8 @@ func (r *PostgresUserRepository) Create(
 			last_active_at,
 			created_at,
 			updated_at,
-			deleted_at
+			deleted_at,
+			phone
 		)
 		VALUES (
 			$1, $2, $3,
@@ -67,7 +68,7 @@ func (r *PostgresUserRepository) Create(
 			$10, $11, $12,
 			$13, $14, $15,
 			$16, $17,
-			$18, $19, $20
+			$18, $19, $20, $21
 		)
 	`
 
@@ -92,6 +93,7 @@ func (r *PostgresUserRepository) Create(
 		u.CreatedAt(),
 		u.UpdatedAt(),
 		u.DeletedAt(),
+		u.Phone().String(),
 	)
 	return err
 }
@@ -121,8 +123,9 @@ func (r *PostgresUserRepository) Update(
 			last_login_at           = $14,
 			last_login_ip           = $15,
 			last_active_at          = $16,
-			updated_at              = $17
-		WHERE id = $18
+			updated_at              = $17,
+			phone                   = $18
+		WHERE id = $19
 	`
 
 	_, err := exec.ExecContext(ctx, q,
@@ -143,6 +146,7 @@ func (r *PostgresUserRepository) Update(
 		nullIfEmpty(u.LastLoginIP()),
 		u.LastActiveAt(),
 		u.UpdatedAt(),
+		u.Phone().String(),
 		u.ID(),
 	)
 	return err
@@ -200,7 +204,8 @@ func (r *PostgresUserRepository) FindByID(
 			last_active_at,
 			created_at,
 			updated_at,
-			deleted_at
+			deleted_at,
+			phone
 		FROM auth.users
 		WHERE id = $1
 	`
@@ -229,6 +234,7 @@ func (r *PostgresUserRepository) FindByID(
 		&m.CreatedAt,
 		&m.UpdatedAt,
 		&m.DeletedAt,
+		&m.Phone,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
@@ -266,7 +272,8 @@ func (r *PostgresUserRepository) FindByEmail(
 			last_active_at,
 			created_at,
 			updated_at,
-			deleted_at
+			deleted_at,
+			phone
 		FROM auth.users
 		WHERE email = $1
 		  AND deleted_at IS NULL
@@ -296,6 +303,7 @@ func (r *PostgresUserRepository) FindByEmail(
 		&m.CreatedAt,
 		&m.UpdatedAt,
 		&m.DeletedAt,
+		&m.Phone,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
@@ -363,7 +371,8 @@ func (r *PostgresUserRepository) List(
 			last_active_at,
 			created_at,
 			updated_at,
-			deleted_at
+			deleted_at, 
+			phone
 		FROM auth.users
 		WHERE deleted_at IS NULL
 	`
@@ -418,6 +427,7 @@ func (r *PostgresUserRepository) List(
 			&m.CreatedAt,
 			&m.UpdatedAt,
 			&m.DeletedAt,
+			&m.Phone,
 		); err != nil {
 			return nil, nil, err
 		}
@@ -494,6 +504,11 @@ func userAggregateFromModel(m *models.UserModel) (*aggregates.UserAggregate, err
 		lastLoginIP = m.LastLoginIP.String
 	}
 
+	var phone string
+	if m.Phone.Valid {
+		phone = m.Phone.String
+	}
+
 	return aggregates.RehydrateUser(
 		m.ID,
 		m.Email,
@@ -502,7 +517,8 @@ func userAggregateFromModel(m *models.UserModel) (*aggregates.UserAggregate, err
 		m.FirstName,
 		m.LastName,
 		middleName,
-		lastLoginIP,          
+		lastLoginIP,
+		phone,
 		m.EmailVerified,
 		emailVerifiedAt,
 		passwordChangedAt,

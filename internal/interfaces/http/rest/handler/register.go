@@ -1,4 +1,3 @@
-// internal/interfaces/http/rest/handler/create_user_http_handler.go
 package handler
 
 import (
@@ -10,6 +9,7 @@ import (
 	"github.com/victorotene80/authentication_api/internal/application/dto"
 	"github.com/victorotene80/authentication_api/internal/application/messaging"
 	"github.com/victorotene80/authentication_api/internal/interfaces/http/requestctx"
+	"github.com/victorotene80/authentication_api/internal/interfaces/http/rest/httperr"
 	"github.com/victorotene80/authentication_api/internal/interfaces/http/rest/request"
 	"github.com/victorotene80/authentication_api/internal/interfaces/http/rest/response"
 )
@@ -83,15 +83,18 @@ func (h *CreateUserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		*dto.RegisterUserResponseDTO, // pointer result to match your handler
 	](h.commandBus, r.Context(), cmd)
 	if err != nil {
-		// Later you can map domain errors to specific codes/status
-		response.Error(
-			w,
-			http.StatusUnprocessableEntity,
-			"USER_CREATION_FAILED",
-			"Could not create user",
-			err.Error(),
-		)
-		return
+
+		if err != nil {
+			response.Error(
+				w,
+				httperr.StatusFrom(err),
+				"USER_CREATION_FAILED",
+				"Could not create user",
+				err.Error(),
+			)
+
+			return
+		}
 	}
 
 	resp := response.CreateUserResponse{

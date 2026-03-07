@@ -21,9 +21,9 @@ func NewUserAggregate(
 	email valueobjects.Email,
 	password valueobjects.Password,
 	firstName, lastName, middleName, lastLoginIP string,
+	phone valueobjects.PhoneNumber,
 	now time.Time,
 ) (*UserAggregate, error) {
-
 	id := uuid.NewString()
 
 	user := entities.NewUserForRegistration(
@@ -34,6 +34,7 @@ func NewUserAggregate(
 		lastName,
 		middleName,
 		lastLoginIP,
+		phone,
 		now,
 	)
 
@@ -45,9 +46,12 @@ func NewUserAggregate(
 	agg.RaiseEvent(types.NewUserCreatedEvent(
 		id,
 		email.String(),
-		user.Status().String(),
+		phone.String(),
 		firstName,
 		lastName,
+		user.Status().String(),
+		false, 
+		1,     
 	))
 
 	return agg, nil
@@ -63,11 +67,11 @@ func NewUserAggregateFromDBRow(
 	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
 	lastLoginAt, lastActiveAt, deletedAt *time.Time,
 	lastLoginIP string,
+	phone valueobjects.PhoneNumber,
 	failedAttempts int,
 	createdAt, updatedAt time.Time,
 	version int,
 ) (*UserAggregate, error) {
-
 	user := entities.NewUserFromDB(
 		id,
 		email,
@@ -85,6 +89,7 @@ func NewUserAggregateFromDBRow(
 		lastActiveAt,
 		deletedAt,
 		lastLoginIP,
+		phone,
 		failedAttempts,
 		createdAt,
 		updatedAt,
@@ -98,8 +103,8 @@ func NewUserAggregateFromDBRow(
 
 // RehydrateUser is a convenience that takes raw strings from DB and builds VOs.
 func RehydrateUser(
-	id, emailStr, hashedPassword, statusStr,
-	firstName, lastName, middleName, lastLoginIP string,
+	id, emailStr, hashedPassword, statusStr string,
+	firstName, lastName, middleName, lastLoginIP, phoneStr string,
 	emailVerified bool,
 	emailVerifiedAt, passwordChangedAt, passwordExpiresAt, lockedUntil,
 	lastLoginAt, lastActiveAt, deletedAt *time.Time,
@@ -107,13 +112,17 @@ func RehydrateUser(
 	createdAt, updatedAt time.Time,
 	version int,
 ) (*UserAggregate, error) {
-
 	emailVO, err := valueobjects.NewEmail(emailStr)
 	if err != nil {
 		return nil, err
 	}
 
 	passVO, err := valueobjects.NewHashedPassword(hashedPassword)
+	if err != nil {
+		return nil, err
+	}
+
+	phoneVO, err := valueobjects.NewPhoneNumber(phoneStr)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +146,7 @@ func RehydrateUser(
 		lastActiveAt,
 		deletedAt,
 		lastLoginIP,
+		phoneVO,
 		failedAttempts,
 		createdAt,
 		updatedAt,
@@ -174,7 +184,9 @@ func (u *UserAggregate) ChangePassword(
 }
 
 func (u *UserAggregate) RecordFailedLogin(now time.Time, lockSvc *services.AccountLockService) {
-	u.User.IncrementFailedLogin()
+	if err := u.User.IncrementFailedLogin(); err != nil {
+		return
+	}
 
 	if lockSvc.ShouldLock(u.User.FailedLoginAttempts()) {
 		lockedUntil := lockSvc.ComputeLockedUntil(now)

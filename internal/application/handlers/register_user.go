@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/victorotene80/authentication_api/internal/application/command"
 	appContracts "github.com/victorotene80/authentication_api/internal/application/contracts"
 	"github.com/victorotene80/authentication_api/internal/application/dto"
@@ -21,7 +22,7 @@ type CreateUserHandler struct {
 	passwordHasher  contracts.PasswordHasher
 	passwordService contracts.PasswordService
 	roleRepo        repository.RoleRepository
-	publisher       appContracts.EventPublisher
+	publisher       appContracts.MessagePublisher
 	sessionService  appContracts.SessionService
 }
 
@@ -31,7 +32,7 @@ func NewCreateUserHandler(
 	passwordHasher contracts.PasswordHasher,
 	passwordService contracts.PasswordService,
 	roleRepo repository.RoleRepository,
-	publisher appContracts.EventPublisher,
+	publisher appContracts.MessagePublisher,
 	sessionService appContracts.SessionService,
 ) *CreateUserHandler {
 	return &CreateUserHandler{
@@ -49,7 +50,6 @@ func (h *CreateUserHandler) Handle(
 	ctx context.Context,
 	cmd command.CreateUserCommand,
 ) (*dto.RegisterUserResponseDTO, error) {
-
 	var (
 		userID    string
 		emailStr  string
@@ -85,6 +85,14 @@ func (h *CreateUserHandler) Handle(
 			return err
 		}
 
+		var phoneNumber valueobjects.PhoneNumber
+		if cmd.Phone != nil && *cmd.Phone != "" {
+			phoneNumber, err = valueobjects.NewPhoneNumber(*cmd.Phone)
+			if err != nil {
+				return err
+			}
+		}
+
 		now := time.Now().UTC()
 
 		var middleName string
@@ -99,6 +107,7 @@ func (h *CreateUserHandler) Handle(
 			cmd.LastName,
 			middleName,
 			cmd.IPAddress,
+			phoneNumber,
 			now,
 		)
 		if err != nil {
@@ -127,23 +136,75 @@ func (h *CreateUserHandler) Handle(
 			txCtx,
 			userID,
 			role.ID,
-			nil, // organizationID (global role)
-			nil, // grantedBy
-			nil, // expiresAt
+			nil,
+			nil,
+			nil,
 		); err != nil {
 			return err
 		}
 
-		meta := messaging.Context{
-			Aggregate: "user",
-			Action:    "created",
+		userCreatedMeta := messaging.Context{
+			Kind:          messaging.KindIntegrationEvent,
+			Name:          "auth.user.created.v1",
+			AggregateType: "user",
+			Action:        "created",
 		}
 
 		if err := h.publisher.Publish(
 			txCtx,
 			agg.PullEvents(),
-			meta.ToMetadata(),
+			userCreatedMeta.ToMetadata(),
 		); err != nil {
+			return err
+		}
+
+		roleAssignedEnv := messaging.Envelope{
+			ID:            uuid.NewString(),
+			Name:          "auth.user.role-assigned.v1",
+			Kind:          messaging.KindIntegrationEvent,
+			AggregateID:   userID,
+			AggregateType: "user",
+			OccurredAt:    now,
+			Payload: messaging.MustJSON(map[string]any{
+				"user_id":   userID,
+				"role_id":   role.ID,
+				"role_slug": role.Slug,
+				"role_name": role.Name,
+				"version":   1,
+			}),
+			Metadata: map[string]string{
+				"message_kind":   string(messaging.KindIntegrationEvent),
+				"message_name":   "auth.user.role-assigned.v1",
+				"aggregate_type": "user",
+				"action":         "role_assigned",
+			},
+			Version: 1,
+		}
+
+		if err := h.publisher.PublishEnvelope(txCtx, roleAssignedEnv); err != nil {
+			return err
+		}
+
+		taskEnv := messaging.Envelope{
+			ID:            uuid.NewString(),
+			Name:          "auth.send-welcome-email.v1",
+			Kind:          messaging.KindTask,
+			AggregateID:   userID,
+			AggregateType: "user",
+			OccurredAt:    now,
+			Payload: messaging.MustJSON(map[string]any{
+				"user_id": userID,
+				"email":   emailStr,
+			}),
+			Metadata: map[string]string{
+				"message_kind":   string(messaging.KindTask),
+				"message_name":   "auth.send-welcome-email.v1",
+				"aggregate_type": "user",
+			},
+			Version: 1,
+		}
+
+		if err := h.publisher.PublishEnvelope(txCtx, taskEnv); err != nil {
 			return err
 		}
 
@@ -163,8 +224,6 @@ func (h *CreateUserHandler) Handle(
 		cmd.DeviceName,
 	)
 	if err != nil {
-		// User is created and has role, but session creation failed.
-		// For now we just bubble up error (caller can decide HTTP 500 etc.).
 		return nil, err
 	}
 

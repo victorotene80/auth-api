@@ -15,14 +15,14 @@ package handlers
 type LogoutHandler struct {
 	uow         appContracts.UnitOfWork
 	sessionRepo repository.SessionRepository
-	publisher   appContracts.EventPublisher
+	publisher   appContracts.MessagePublisher
 	clock       func() time.Time
 }
 
 func NewLogoutHandler(
 	uow appContracts.UnitOfWork,
 	sessionRepo repository.SessionRepository,
-	publisher appContracts.EventPublisher,
+	publisher appContracts.MessagePublisher,
 	clock func() time.Time,
 ) *LogoutHandler {
 	return &LogoutHandler{
