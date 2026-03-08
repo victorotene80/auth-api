@@ -50,6 +50,7 @@ func NewUserAggregate(
 		firstName,
 		lastName,
 		user.Status().String(),
+		
 		false, 
 		1,     
 	))

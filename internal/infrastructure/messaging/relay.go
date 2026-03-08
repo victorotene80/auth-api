@@ -110,7 +110,19 @@ func (r *Relay) tick(ctx context.Context) error {
 		return fmt.Errorf("relay: fetch unprocessed: %w", err)
 	}
 
+	r.logger.Info("relay fetched pending messages",
+		zap.Int("count", len(envelopes)),
+	)
+
 	for _, env := range envelopes {
+		r.logger.Info("relay processing message",
+			zap.String("id", env.ID),
+			zap.String("name", env.Name),
+			zap.String("kind", string(env.Kind)),
+			zap.String("aggregate_id", env.AggregateID),
+			zap.String("aggregate_type", env.AggregateType),
+		)
+
 		if err := r.repo.MarkInProgress(ctx, env.ID); err != nil {
 			r.logger.Warn("relay: mark in-progress failed",
 				zap.String("id", env.ID),
@@ -131,23 +143,52 @@ func (r *Relay) tick(ctx context.Context) error {
 			continue
 		}
 
+		brokerName := "unknown"
+		switch env.Kind {
+		case appmsg.KindIntegrationEvent:
+			brokerName = "event"
+		case appmsg.KindTask:
+			brokerName = "task"
+		}
+
+		r.logger.Info("relay publishing message",
+			zap.String("id", env.ID),
+			zap.String("name", env.Name),
+			zap.String("kind", string(env.Kind)),
+			zap.String("broker", brokerName),
+		)
+
 		if err := broker.Publish(ctx, env); err != nil {
 			r.logger.Error("relay: publish failed",
 				zap.String("id", env.ID),
 				zap.String("name", env.Name),
 				zap.String("kind", string(env.Kind)),
+				zap.String("broker", brokerName),
 				zap.Error(err),
 			)
 			_ = r.repo.MarkFailed(ctx, env.ID)
 			continue
 		}
 
+		r.logger.Info("relay published message successfully",
+			zap.String("id", env.ID),
+			zap.String("name", env.Name),
+			zap.String("kind", string(env.Kind)),
+			zap.String("broker", brokerName),
+		)
+
 		if err := r.repo.MarkSent(ctx, env.ID); err != nil {
 			r.logger.Error("relay: mark sent failed",
 				zap.String("id", env.ID),
 				zap.Error(err),
 			)
+			continue
 		}
+
+		r.logger.Info("relay marked message sent",
+			zap.String("id", env.ID),
+			zap.String("name", env.Name),
+		)
 	}
 
 	return nil

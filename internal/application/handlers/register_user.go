@@ -71,6 +71,22 @@ func (h *CreateUserHandler) Handle(
 			return fmt.Errorf("email already registered")
 		}
 
+		var phoneNumber valueobjects.PhoneNumber
+		if cmd.Phone != nil && *cmd.Phone != "" {
+			phoneNumber, err = valueobjects.NewPhoneNumber(*cmd.Phone)
+			if err != nil {
+				return err
+			}
+
+			phoneExists, err := h.userRepo.ExistsByPhone(txCtx, phoneNumber)
+			if err != nil {
+				return err
+			}
+			if phoneExists {
+				return fmt.Errorf("phone already registered")
+			}
+		}
+
 		if err := h.passwordService.Validate(cmd.Password); err != nil {
 			return err
 		}
@@ -83,14 +99,6 @@ func (h *CreateUserHandler) Handle(
 		passwordVO, err := valueobjects.NewHashedPassword(hash)
 		if err != nil {
 			return err
-		}
-
-		var phoneNumber valueobjects.PhoneNumber
-		if cmd.Phone != nil && *cmd.Phone != "" {
-			phoneNumber, err = valueobjects.NewPhoneNumber(*cmd.Phone)
-			if err != nil {
-				return err
-			}
 		}
 
 		now := time.Now().UTC()
@@ -145,7 +153,7 @@ func (h *CreateUserHandler) Handle(
 
 		userCreatedMeta := messaging.Context{
 			Kind:          messaging.KindIntegrationEvent,
-			Name:          "auth.user.created.v1",
+			Name:          "user.created.v1",
 			AggregateType: "user",
 			Action:        "created",
 		}
@@ -158,7 +166,7 @@ func (h *CreateUserHandler) Handle(
 			return err
 		}
 
-		roleAssignedEnv := messaging.Envelope{
+		/*roleAssignedEnv := messaging.Envelope{
 			ID:            uuid.NewString(),
 			Name:          "auth.user.role-assigned.v1",
 			Kind:          messaging.KindIntegrationEvent,
@@ -183,11 +191,11 @@ func (h *CreateUserHandler) Handle(
 
 		if err := h.publisher.PublishEnvelope(txCtx, roleAssignedEnv); err != nil {
 			return err
-		}
+		}*/
 
 		taskEnv := messaging.Envelope{
 			ID:            uuid.NewString(),
-			Name:          "auth.send-welcome-email.v1",
+			Name:          "send-welcome-email.v1",
 			Kind:          messaging.KindTask,
 			AggregateID:   userID,
 			AggregateType: "user",
@@ -198,7 +206,7 @@ func (h *CreateUserHandler) Handle(
 			}),
 			Metadata: map[string]string{
 				"message_kind":   string(messaging.KindTask),
-				"message_name":   "auth.send-welcome-email.v1",
+				"message_name":   "send-welcome-email.v1",
 				"aggregate_type": "user",
 			},
 			Version: 1,

@@ -35,7 +35,7 @@ func Load() (*Config, error) {
 		Security:  security,
 		Database:  database,
 		Redis:     redisCfg,
-		GeoIP:     geo,
+		GeoIP:    geo,
 		Messaging: messaging,
 	}, nil
 }

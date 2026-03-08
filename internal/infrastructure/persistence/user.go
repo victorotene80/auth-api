@@ -335,6 +335,29 @@ func (r *PostgresUserRepository) ExistsByEmail(
 	return exists, nil
 }
 
+func (r *PostgresUserRepository) ExistsByPhone(
+	ctx context.Context,
+	phone valueobjects.PhoneNumber,
+) (bool, error) {
+	const q = `
+		SELECT EXISTS(
+			SELECT 1
+			FROM auth.users
+			WHERE phone = $1
+			  AND deleted_at IS NULL
+		)
+	`
+
+	exec := ChooseExecutor(ctx, r.db)
+
+	var exists bool
+	if err := exec.QueryRowContext(ctx, q, phone.String()).Scan(&exists); err != nil {
+		return false, err
+	}
+
+	return exists, nil
+}
+
 func (r *PostgresUserRepository) List(
 	ctx context.Context,
 	limit int,

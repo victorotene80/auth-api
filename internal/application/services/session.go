@@ -143,7 +143,7 @@ func (s *sessionService) Create(
 			return err
 		}
 
-		if err := s.eventPublisher.Publish(
+		/*if err := s.eventPublisher.Publish(
 			txCtx,
 			session.PullEvents(),
 			map[string]string{
@@ -160,7 +160,7 @@ func (s *sessionService) Create(
 			},
 		); err != nil {
 			return err
-		}
+		}*/
 
 		session.ClearEvents()
 

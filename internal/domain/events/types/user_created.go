@@ -1,6 +1,10 @@
 package types
 
-import "github.com/victorotene80/authentication_api/internal/domain/events"
+import (
+	"time"
+
+	"github.com/victorotene80/authentication_api/internal/domain/events"
+)
 
 type UserCreatedPayload struct {
 	UserID     string
@@ -12,6 +16,7 @@ type UserCreatedPayload struct {
 	Status     string
 	MFAEnabled bool
 	Version    int
+	OccurredAt time.Time
 }
 
 const UserCreatedEventName = "user.created"
@@ -26,6 +31,7 @@ func NewUserCreatedEvent(
 	status string,
 	mfaEnabled bool,
 	version int,
+	//occuredAt time.Time,
 ) events.DomainEvent {
 	return events.NewEvent(
 		UserCreatedEventName,
@@ -40,6 +46,7 @@ func NewUserCreatedEvent(
 			Status:     status,
 			MFAEnabled: mfaEnabled,
 			Version:    version,
+			OccurredAt: time.Now(),
 		},
 		nil,
 	)
